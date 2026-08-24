@@ -70,9 +70,23 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 - [x] DB の具体的なテーブル定義・列構成を設計する（[`docs/database-schema.md`](docs/database-schema.md)、[`AGENT.md`](AGENT.md) SQLite 節）
   - 価格データ、企業アクション、銘柄マスタ、信用情報、戦略パラメータ、候補/スコア、ポジション、MarginLot/契約条件、信用コスト台帳、約定履歴、AIキュー/結果の各テーブルを、決定済みドキュメントの内容を踏まえて設計する
   - **前提**: セクション2（特に 2-1 の企業アクションテーブル、2-3 の部分決済・信用コスト・建玉期限、2-4 のパラメータスナップショット）を先に決着させること
-- [ ] 決定済み論理設計をDomainモデル、EF Core設定、追加の `AddBusinessSchema` マイグレーションへ実装する
+- [x] 決定済み論理設計をDomainモデル、EF Core設定、追加の `AddBusinessSchema` マイグレーションへ実装する
   - 空の `InitialCreate` は変更せず、[`docs/database-schema.md`](docs/database-schema.md) の順序で追加する
   - revisionの追記制約、snake_case、`DeleteBehavior.Restrict`、point-in-time manifest再構築、手動約定だけを許す境界をRepository/migrationテストで担保する
+  - 54業務テーブル、canonical UUID/UTC/date/decimal変換、FK索引、CHECK/filtered unique、append-only/運用状態トリガーを `AddBusinessSchema` へ実装済み。
+  - DomainモデルはEF rowから分離し、利用者確認済み約定だけを生成できる境界、revision直系訂正、信用コストの欠損/0/確定優先、AI状態を不変条件として実装済み。
+  - migration適用、schema/integrity、FK `RESTRICT`/索引、immutable/terminal更新拒否、revision分岐拒否、point-in-time price set/manifest再構築をテスト済み。
+- [ ] **主要画面のUIモックを起動し、デザインを利用者と確認する**
+  - **実施タイミング**: Domain/Application の主要ユースケースと画面表示用データ契約が固まり、実DB・外部APIへ接続する前。モックデータだけで候補一覧、保有ポジション、約定履歴、手動約定登録、進捗・エラー・AI状態を一通り遷移できる状態にする。
+  - Long/Short、Entry/Exit、参考情報と利用者入力の境界が誤読されないこと、重要情報の優先順位、ウィンドウサイズ変更時のレイアウト、確認操作の分かりやすさを実際に起動して確認する。
+  - 確認結果を反映してから実データ接続と画面実装を進め、手戻りを抑える。モックから売買履歴を自動生成したり、実注文へつながる導線は作らない。
+- [ ] **Application の主要ユースケースを実装し、UIをローカルSQLiteへ接続する**
+  - UIモックで確定した画面契約を使い、候補参照、保有参照、手動約定登録・訂正、進捗・エラー表示を Application 層経由で動かす。ViewModelからDbContextやRepositoryを直接操作しない。
+  - 外部APIへはまだ接続せず、再現可能なローカルテストデータを投入できる開発用経路を用意する。実運用DBとテストDBを混同しない。
+- [ ] **ローカル結合版を起動し、実際の画面操作で一連の動作を検証する**
+  - **実施タイミング**: Domainモデル、`AddBusinessSchema`、Repository、主要Applicationユースケース、UI接続が揃った後。セクション4のバックテストおよびセクション5の外部データ接続より前に実施する。
+  - テストデータを使い、起動 → 一覧表示 → 詳細確認 → 利用者入力 → 確認 → SQLite保存 → 再起動後の再表示 → 訂正revision追加までを操作する。
+  - Long/Short・Entry/Exitの誤読、入力検証、キャンセル、多重実行防止、進捗、失敗表示を確認し、分析結果や現在値から売買履歴が自動生成されないことも確認する。
 
 ## 4. 仮決定パラメータの検証・調整（実装後にバックテスト等で見直す前提）
 - [ ] **バックテスト基盤を構築する**（以下の検証タスクすべての前提。[`technical-analysis.md`](docs/technical-analysis.md) Look-ahead bias 節の規則をバックテストにも適用すること）

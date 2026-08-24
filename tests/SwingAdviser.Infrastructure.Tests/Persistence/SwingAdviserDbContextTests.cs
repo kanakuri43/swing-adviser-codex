@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using SwingAdviser.Infrastructure.Persistence;
 
 namespace SwingAdviser.Infrastructure.Tests.Persistence;
@@ -17,7 +19,10 @@ public sealed class SwingAdviserDbContextTests
             .Options;
 
         await using var dbContext = new SwingAdviserDbContext(options);
-        await dbContext.Database.MigrateAsync();
+        var initialMigration = Assert.Single(
+            await dbContext.Database.GetPendingMigrationsAsync(),
+            migration => migration.EndsWith("_InitialCreate", StringComparison.Ordinal));
+        await dbContext.GetService<IMigrator>().MigrateAsync(initialMigration);
 
         var appliedMigrations = (await dbContext.Database.GetAppliedMigrationsAsync()).ToArray();
 
