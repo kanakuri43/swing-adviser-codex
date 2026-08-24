@@ -1,0 +1,40 @@
+<mah:MetroWindow x:Class="SwingAdviser.Presentation.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 xmlns:prism="http://prismlibrary.com/"
+                 Title="{Binding Title}"
+                 Width="960"
+                 Height="600"
+                 MinWidth="720"
+                 MinHeight="480"
+                 prism:ViewModelLocator.AutoWireViewModel="True"
+                 GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+                 WindowStartupLocation="CenterScreen"
+                 mc:Ignorable="d">
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock FontSize="28"
+                   FontWeight="SemiBold"
+                   Text="日本株スイング判断支援" />
+        <Border Grid.Row="2"
+                Padding="20"
+                BorderBrush="{DynamicResource MahApps.Brushes.Gray5}"
+                BorderThickness="1"
+                CornerRadius="4">
+            <StackPanel>
+                <TextBlock FontSize="18" Text="{Binding StatusMessage}" />
+                <TextBlock Margin="0,8,0,0"
+                           Foreground="{DynamicResource MahApps.Brushes.Gray2}"
+                           Text="分析と記録による判断支援を行います。注文・自動売買は実行しません。" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</mah:MetroWindow>
