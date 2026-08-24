@@ -1,7 +1,7 @@
 # TODO
 
 AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト。
-基盤構築とセクション2の設計判断は完了。次はセクション3のDB業務スキーマを設計する。
+基盤構築、セクション2の設計判断、セクション3のDB論理設計は完了。次は決定済み設計をDomain/EF Coreモデルと追加マイグレーションへ実装する。
 
 **依存関係の注意**: セクション2（設計上の要修正事項）はデータモデルの根幹に関わるため、セクション3（DB スキーマ設計）より先に決着させる。後から直すと保存済みデータの再構築が必要になる。
 
@@ -41,6 +41,7 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
   - EMA は IIR フィルタのためシードの影響が残る。EMA200（α≈0.00995）を約490営業日（2年）で計算するとシード寄与が約5%残存する。
   - [`data-sources.md`](docs/data-sources.md) の「直近2年＋差分更新」方針では運用継続で履歴が伸び、同じ過去日の EMA200 値が変化する。閾値付近の銘柄で判定が事後的に反転し、2-1と同じく再現性が失われる。
   - MACD の EMA12/26 は減衰が速いため対象外。EMA200 固有の問題。
+  - **検証依存**: セクション4「上場来の初期取得」の検証およびセクション5の Yahoo Finance API 実地確認で運用可能性を確認する。`HistoryIncomplete` による除外率が許容できない場合は、本格運用前に再現可能な代替起点ルールを再検討する。
 
 ### 2-3. ドメインモデルの欠落（DB スキーマ設計の前提）
 - [x] **部分決済モデルへの対応**
@@ -66,9 +67,12 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
   - パラメータ変更で過去の判定が再現不能になるため、判定結果レコード側にパラメータのスナップショットを凍結保存する設計とする（正は設定ファイル、判定時に DB へ保存）。
 
 ## 3. 未確定仕様の解消
-- [ ] DB の具体的なテーブル定義・列構成を設計する（[`AGENT.md`](AGENT.md) Currently undecided、[`AGENT.md`](AGENT.md) SQLite 節）
+- [x] DB の具体的なテーブル定義・列構成を設計する（[`docs/database-schema.md`](docs/database-schema.md)、[`AGENT.md`](AGENT.md) SQLite 節）
   - 価格データ、企業アクション、銘柄マスタ、信用情報、戦略パラメータ、候補/スコア、ポジション、MarginLot/契約条件、信用コスト台帳、約定履歴、AIキュー/結果の各テーブルを、決定済みドキュメントの内容を踏まえて設計する
   - **前提**: セクション2（特に 2-1 の企業アクションテーブル、2-3 の部分決済・信用コスト・建玉期限、2-4 のパラメータスナップショット）を先に決着させること
+- [ ] 決定済み論理設計をDomainモデル、EF Core設定、追加の `AddBusinessSchema` マイグレーションへ実装する
+  - 空の `InitialCreate` は変更せず、[`docs/database-schema.md`](docs/database-schema.md) の順序で追加する
+  - revisionの追記制約、snake_case、`DeleteBehavior.Restrict`、point-in-time manifest再構築、手動約定だけを許す境界をRepository/migrationテストで担保する
 
 ## 4. 仮決定パラメータの検証・調整（実装後にバックテスト等で見直す前提）
 - [ ] **バックテスト基盤を構築する**（以下の検証タスクすべての前提。[`technical-analysis.md`](docs/technical-analysis.md) Look-ahead bias 節の規則をバックテストにも適用すること）
@@ -79,6 +83,7 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 - [ ] 候補スコアの重み付け（未確定）を決定し、0〜100スコア・信頼度ラベルとの対応を詰める（[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
 - [ ] Long/Short 非対称条件（Short は全条件一致必須）の実データでの妥当性検証
 - [ ] 上場来の初期取得について、実行時間・保存容量・取得元の履歴完全性を検証（[`data-sources.md`](docs/data-sources.md)）
+- [ ] 日次分析結果について、想定全銘柄数 × Long/Short × 指標数で DB 本体・索引・WAL の行数/bytes per day と1年増分を実測し、バックアップ容量・保持方針を決める（`indicator_results.values_json` に時系列全体を保存しない前提）
 - [ ] AI 結果 schema のうち型未確定のフィールド（Summary/TechnicalView/FundamentalView/PositiveFactors/RiskFactors/InvalidationConditions/CheckedAt/Sources）の型を確定する（[`ai-analysis.md`](docs/ai-analysis.md)）
 - [ ] Codex CLI のデフォルト timeout（120秒）・並列数2・自動チェック上位件数3/方向の妥当性を実運用で検証
 

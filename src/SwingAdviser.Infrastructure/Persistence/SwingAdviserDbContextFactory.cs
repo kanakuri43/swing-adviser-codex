@@ -8,9 +8,8 @@ public sealed class SwingAdviserDbContextFactory : IDesignTimeDbContextFactory<S
     public SwingAdviserDbContext CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<SwingAdviserDbContext>()
-            .UseSqlite(
-                "Data Source=swing-adviser.design.db",
-                sqliteOptions => sqliteOptions.MigrationsHistoryTable("__ef_migrations_history"))
+            .UseSwingAdviserSqlite(
+                SwingAdviserSqliteDatabase.CreateConnectionString("swing-adviser.design.db"))
             .Options;
 
         return new SwingAdviserDbContext(options);

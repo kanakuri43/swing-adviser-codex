@@ -56,7 +56,7 @@ UI で BUY/SELL を表示する場合も、新規/決済と Long/Short の意味
 最低限表示:
 - 銘柄コード/銘柄名
 - Long/Short
-- Entry/Exit
+- Entry（初期リリース。Exit/Hold/StopLoss/TakeProfit は保有ポジション単位で Positions に表示）
 - 判定日
 - 適用戦略
 - スコアまたは信頼度

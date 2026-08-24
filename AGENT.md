@@ -15,6 +15,7 @@
 - [`docs/technical-analysis.md`](docs/technical-analysis.md) — テクニカル指標・シグナル・候補スコア算出、未来データ混入対策、参考実装（「データをどう分析するか」）
 - [`docs/risk-management.md`](docs/risk-management.md) — 損切/利確ルール（ATR倍数・R倍率・テクニカル反転条件）
 - [`docs/ai-analysis.md`](docs/ai-analysis.md) — AI チェック（Codex CLI）の調査項目・結果 schema、Codex CLI 実行設定
+- [`docs/database-schema.md`](docs/database-schema.md) — SQLite業務テーブル、列、キー、revision、監査・point-in-time制約
 
 ## Non-negotiable rules
 - 証券会社へ注文を送信しない。自動売買を実装しない。
@@ -65,7 +66,7 @@ AI 分析とテクニカル分析は責務を分ける。
 
 マイグレーション方式(仮決定): EF Core Migrations を使用する。スキーマ変更は必ずマイグレーションとして追加し、既存マイグレーションを書き換えない。
 ネーミング規則(仮決定): テーブル名・カラム名は snake_case とする（EF Core 側でマッピング設定する）。
-具体的なテーブル定義・列構成は未確定。実装時に、docs 側で決定済みの各項目（価格データ、銘柄マスタ、信用情報、戦略パラメータ、候補/スコア、ポジション、約定履歴、AI 結果）を踏まえて設計する。
+具体的なテーブル定義・列構成の正は [`docs/database-schema.md`](docs/database-schema.md) とする。最初の業務スキーマは既存の空の `InitialCreate` を変更せず、追加マイグレーションとして実装する。
 
 ## Logging/errors
 外部データ・AI・ネットワークは失敗する前提で設計する。
@@ -83,9 +84,11 @@ HTTP error、rate limit、timeout、invalid/missing data、CLI failure、SQLite 
 
 ## Configuration
 環境依存値は設定へ分離する。
-例: 株価データ取得元、API endpoint、API key 参照、Codex CLI path、AI timeout、並列数、戦略パラメータ、対象市場フィルタ、DB path。
+例: 株価データ取得元、API endpoint、API key 参照、Codex CLI path、AI timeout、並列数、戦略パラメータ、対象市場フィルタ。
 戦略パラメータの正は設定とし、判定時にはデフォルトと上書きを解決した完全な設定JSONを正規化してDBへ不変スナップショット保存する。schema/strategy/algorithm version と SHA-256 hash も保持し、過去判定は現在の設定を参照し直さない。
 API key 等の秘密情報をコミットしない。
+
+実運用SQLite DBの保存先は設定値にせず、実行中EXEと同じディレクトリの `swing-adviser.db` に固定する。パスはカレントディレクトリではなく `AppContext.BaseDirectory` を基準に解決する。書き込み不可の場合は別ディレクトリへ暗黙フォールバックせず、起動時に明示的なエラーとして扱う。詳細は [`docs/database-schema.md`](docs/database-schema.md) Runtime database location 節を参照する。
 
 ## Testing
 特にテストする:
@@ -142,7 +145,9 @@ dotnet test
 ## Currently undecided
 以下は確定仕様として扱わない。
 
-- DB の具体的なテーブル定義・列構成（マイグレーション方式/ネーミング規則は SQLite 節で仮決定済み）
+- AI 結果の詳細なsemantic schemaとそのversion
+- JPX/Yahoo等の銘柄コード正規化・コード再利用ルール
+- バックテストで検証する戦略・リスク・スコアの仮パラメータ
 
 既存コード/docs/issue に根拠がなければ、変更容易な抽象化・設定値で仮決定し、その仮定を作業結果に明記する。
 
