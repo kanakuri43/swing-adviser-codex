@@ -1,5 +1,6 @@
 # Presentation Layer
-- `src/SwingAdviser.Presentation`; WPF net10.0-windows using Prism.DryIoc, MVVM, and MahApps.Metro. References Application and Infrastructure for composition.
-- `App` is the Prism composition root; `MainWindow` uses ViewModelLocator and derives from MetroWindow.
+- `src/SwingAdviser.Presentation`; WPF net10.0-windows using Prism.DryIoc, MVVM, and MahApps.Metro. References only Application (verified 2026-08-25; it does not reference Infrastructure directly).
+- `App` (the Prism composition root, `PrismApplication`) actually lives in `src/SwingAdviser.Desktop`, not in Presentation (corrected 2026-08-25 — this file previously said otherwise). `MainWindow` (in Presentation) uses ViewModelLocator and derives from MetroWindow.
+- A UI mock exploring 3 alternative screen layouts lives in `mocks/SwingAdviser.UiMock` (separate project, not part of this layer, references Domain only). See TODO.md section 3 for status; once a design is adopted it will be ported into this project.
 - Code-behind contains UI-only concerns; business rules stay outside Presentation, and ViewModels do not call DB/HTTP/files/CLI directly.
 - UI must make failures visible and must not imply guaranteed profits, instant fills, order submission, or automated trade-history creation.

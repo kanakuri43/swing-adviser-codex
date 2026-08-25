@@ -1,0 +1,127 @@
+<mah:MetroWindow x:Class="SwingAdviser.UiMock.MockShellWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:a="clr-namespace:SwingAdviser.UiMock.Variants.A"
+                 xmlns:b="clr-namespace:SwingAdviser.UiMock.Variants.B"
+                 xmlns:c="clr-namespace:SwingAdviser.UiMock.Variants.C"
+                 xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+                 xmlns:prism="http://prismlibrary.com/"
+                 Title="{Binding WindowTitle}"
+                 Width="1440"
+                 Height="900"
+                 MinWidth="1100"
+                 MinHeight="700"
+                 GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+                 WindowStartupLocation="CenterScreen"
+                 mc:Ignorable="d"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+
+    <mah:MetroWindow.InputBindings>
+        <KeyBinding Key="F1" Command="{Binding SelectVariantCommand}" CommandParameter="A" />
+        <KeyBinding Key="F2" Command="{Binding SelectVariantCommand}" CommandParameter="B" />
+        <KeyBinding Key="F3" Command="{Binding SelectVariantCommand}" CommandParameter="C" />
+    </mah:MetroWindow.InputBindings>
+
+    <mah:MetroWindow.RightWindowCommands>
+        <mah:WindowCommands>
+            <Button Command="{Binding SelectVariantCommand}" CommandParameter="A" Content="案A" />
+            <Button Command="{Binding SelectVariantCommand}" CommandParameter="B" Content="案B" />
+            <Button Command="{Binding SelectVariantCommand}" CommandParameter="C" Content="案C" />
+            <Separator />
+            <Button Command="{Binding ApplySizePresetCommand}" CommandParameter="min" Content="1100×700" />
+            <Button Command="{Binding ApplySizePresetCommand}" CommandParameter="max" Content="1440×900" />
+        </mah:WindowCommands>
+    </mah:MetroWindow.RightWindowCommands>
+
+    <Grid>
+        <!-- 3案は常時生成しておき、Visibilityで切り替える。共有DataContextを継承させたまま
+             再起動なしで往復できるようにするための構成。 -->
+        <a:TabbedVariantView>
+            <a:TabbedVariantView.Style>
+                <Style TargetType="UserControl">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedVariant}" Value="A">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </a:TabbedVariantView.Style>
+        </a:TabbedVariantView>
+
+        <b:MasterDetailVariantView>
+            <b:MasterDetailVariantView.Style>
+                <Style TargetType="UserControl">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedVariant}" Value="B">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </b:MasterDetailVariantView.Style>
+        </b:MasterDetailVariantView>
+
+        <c:DashboardVariantView>
+            <c:DashboardVariantView.Style>
+                <Style TargetType="UserControl">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedVariant}" Value="C">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </c:DashboardVariantView.Style>
+        </c:DashboardVariantView>
+
+        <!-- 起動時の案選択オーバーレイ -->
+        <Border Background="#CC1B1B1B" Visibility="{Binding IsOverlayVisible, Converter={StaticResource BoolToVisibility}}">
+            <Border Width="520"
+                    Padding="24"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="White"
+                    CornerRadius="6">
+                <StackPanel>
+                    <TextBlock Margin="0,0,0,16" Style="{StaticResource SectionHeaderTextStyle}" Text="表示する案を選択" />
+
+                    <Button Margin="0,0,0,8"
+                            Padding="12"
+                            HorizontalContentAlignment="Left"
+                            Command="{Binding SelectVariantCommand}"
+                            CommandParameter="A">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="案A タブ切替型" />
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="上部タブで候補/保有/履歴を切替。列固定+横スクロールで13列を表示。" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Margin="0,0,0,8"
+                            Padding="12"
+                            HorizontalContentAlignment="Left"
+                            Command="{Binding SelectVariantCommand}"
+                            CommandParameter="B">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="案B マスタ詳細2ペイン型" />
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="左に一覧（5列）、右に詳細ペイン。フッターに状態表示。" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Padding="12"
+                            HorizontalContentAlignment="Left"
+                            Command="{Binding SelectVariantCommand}"
+                            CommandParameter="C">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="案C ダッシュボード型" />
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="サマリタイルからドリルイン。カード行で候補を表示。" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Margin="0,16,0,0" Style="{StaticResource DisclaimerTextStyle}" Text="選択後も右上のボタンやF1/F2/F3でいつでも切り替えられます。" />
+                </StackPanel>
+            </Border>
+        </Border>
+    </Grid>
+</mah:MetroWindow>

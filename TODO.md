@@ -80,9 +80,16 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
   - **実施タイミング**: Domain/Application の主要ユースケースと画面表示用データ契約が固まり、実DB・外部APIへ接続する前。モックデータだけで候補一覧、保有ポジション、約定履歴、手動約定登録、進捗・エラー・AI状態を一通り遷移できる状態にする。
   - Long/Short、Entry/Exit、参考情報と利用者入力の境界が誤読されないこと、重要情報の優先順位、ウィンドウサイズ変更時のレイアウト、確認操作の分かりやすさを実際に起動して確認する。
   - 確認結果を反映してから実データ接続と画面実装を進め、手戻りを抑える。モックから売買履歴を自動生成したり、実注文へつながる導線は作らない。
+  - **進捗（Claude Codeが `feature/ui-mock` ブランチで実施中）**: `mocks/SwingAdviser.UiMock`（`src/SwingAdviser.Presentation` とは別プロジェクト、Domainのみ参照・Infrastructure非参照）に、全体レイアウト戦略が異なる3案（案A タブ切替型、案B マスタ詳細2ペイン型、案C ダッシュボード型）をモックデータのみで実装済み。候補一覧は各案作り込み、保有/履歴/明細/手動約定登録は3案共通テンプレート。起動後 `F1`/`F2`/`F3` またはウィンドウ右上のボタンで再起動なしに案を切り替え可能。
+    - 起動: `dotnet run --project .\mocks\SwingAdviser.UiMock\SwingAdviser.UiMock.csproj`
+    - **検証済み（2026-08-25）**: .NET 10.0.400 SDK導入後（`global.json` を `10.0.303`→`10.0.400` に更新）、`dotnet build` / `dotnet test`（25/25成功）/ 実起動を確認。実際にウィンドウを操作し、3案の切替（F1/F2/F3、状態が引き継がれることを確認）、候補一覧の列表示、AI状態バッジ、売建可否（不明/規制あり/売建不可の書き分け）、保有ポジション明細（コスト未調整の建値候補注記、未公表/確定の書き分け）を目視確認済み。
+    - 実機テストで発見・修正したバグ: (1) XAML `mc:Ignorable="d"` に `xmlns:d` 未宣言、(2) `Style.Setter` で `TargetName` を使用（ControlTemplate外では不可）、(3) `MockScenarioState` コンストラクタでコマンド初期化前に `LoadScenario` を呼びNRE、(4) 案間で共有する `ResourceDictionary`（`SharedTemplates.*.xaml`）が他ファイルの `StaticResource` を解決できない、(5) 「再試行」ボタンの活性条件が失敗系のみで情報不足/キャンセル/旧結果から再試行できなかった、(6) 案Bの詳細ペインが未選択時にラベルだけの中途半端な表示になっていた（プレースホルダーを追加）、(7) 案Cの「期限接近」タイルが「期限不明」を誤って合算していた。いずれも修正・再ビルド確認済み。
+    - 未実施: 利用者自身によるデザイン比較・採用案の決定（このタスクの本来の目的）。3案とも起動可能な状態。
+    - 採用案が決まったら `src/SwingAdviser.Presentation` へ移植し、`mocks/` は削除する。
 - [ ] **Application の主要ユースケースを実装し、UIをローカルSQLiteへ接続する**
   - UIモックで確定した画面契約を使い、候補参照、保有参照、手動約定登録・訂正、進捗・エラー表示を Application 層経由で動かす。ViewModelからDbContextやRepositoryを直接操作しない。
   - 外部APIへはまだ接続せず、再現可能なローカルテストデータを投入できる開発用経路を用意する。実運用DBとテストDBを混同しない。
+  - **引継ぎ**: `mocks/SwingAdviser.UiMock/Shared/MockLabels.cs` のラベル整形ロジック（AI verdictは候補方向とセットで表示、コスト欠損は¥0にしない、売建可否不明を可能と推測しない 等）を本番の表示ロジックとして移植し、以下3点は必ずテストで担保する: (1) `CostAmountLabel` が `Unpublished`/`FetchFailed`/`Unknown`/`NotOccurred` で `¥0` を含む文字列を返さない、(2) `AiVerdictAlignmentLabel` が Long/Short×Bullish/Neutral/Bearish/nullの全組み合わせで整合ラベルなしの裸の強気/弱気を返さない、(3) `ShortAvailabilityLabel(Unknown)` が「不明」を含み「可」を含まない。モック側のコピーはこの移植後に削除してよい。
 - [ ] **ローカル結合版を起動し、実際の画面操作で一連の動作を検証する**
   - **実施タイミング**: Domainモデル、`AddBusinessSchema`、Repository、主要Applicationユースケース、UI接続が揃った後。セクション4のバックテストおよびセクション5の外部データ接続より前に実施する。
   - テストデータを使い、起動 → 一覧表示 → 詳細確認 → 利用者入力 → 確認 → SQLite保存 → 再起動後の再表示 → 訂正revision追加までを操作する。

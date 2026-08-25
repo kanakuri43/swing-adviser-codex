@@ -1,0 +1,132 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:shared="clr-namespace:SwingAdviser.UiMock.Shared"
+                    xmlns:vm="clr-namespace:SwingAdviser.UiMock.ViewModels">
+
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="MockStyles.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <!-- 保有ポジション・約定履歴は利用者決定により3案共通の簡略テンプレートにする。 -->
+
+    <DataTemplate x:Key="PositionCostLineTemplate" DataType="{x:Type vm:MockCostLineRowViewModel}">
+        <Grid Margin="0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="50" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{Binding Label, Mode=OneWay}" />
+            <TextBlock Grid.Column="1" Style="{StaticResource FieldLabelTextStyle}" Text="{Binding DirectionLabel, Mode=OneWay}" />
+            <TextBlock Grid.Column="2" Text="{Binding AmountText, Mode=OneWay}" />
+        </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="PositionCardTemplate" DataType="{x:Type vm:PositionRowViewModel}">
+        <Border Style="{StaticResource CardBorderStyle}">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource SectionHeaderTextStyle}">
+                        <Run Text="{Binding Code, Mode=OneWay}" />
+                        <Run Text=" " />
+                        <Run Text="{Binding Name, Mode=OneWay}" />
+                        <Run Text=" ／ " />
+                        <Run Text="{Binding SideLabel, Mode=OneWay}" />
+                        <Run Text=" ／ " />
+                        <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:#,0}株}" />
+                    </TextBlock>
+                    <shared:SeverityBadge Grid.Column="1"
+                                          Severity="{Binding DeadlineSeverity, Mode=OneWay}"
+                                          Text="{Binding DeadlineStateText, Mode=OneWay}" />
+                </Grid>
+
+                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding AppliedStrategy, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding EvaluationBarDateLabel, Mode=OneWay}" />
+
+                <TextBlock Margin="0,6,0,0" FontWeight="SemiBold" Text="{Binding DecisionLabel, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource FieldValueTextStyle}" Text="{Binding DecisionReason, Mode=OneWay}" />
+
+                <UniformGrid Margin="0,8,0,0" Columns="2">
+                    <StackPanel Margin="0,0,8,4">
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding FixedAtrText, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding CurrentAtrReferenceText, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding StopMultiplierText, Mode=OneWay}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,0,4">
+                        <TextBlock Text="{Binding StopPriceText, Mode=OneWay, StringFormat=損切候補: {0}}" />
+                        <TextBlock Text="{Binding TakeProfitPriceText, Mode=OneWay, StringFormat=利確候補: {0}}" />
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding PartialExitText, Mode=OneWay}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </UniformGrid>
+
+                <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Style="{StaticResource FieldLabelTextStyle}" Text="要照合状態: " />
+                    <TextBlock Text="{Binding ReconciliationStatusLabel, Mode=OneWay}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource CollapseWhenTextNullStyle}" Text="{Binding CorporateActionNote, Mode=OneWay}" />
+
+                <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                    <TextBlock Text="{Binding RemainingBusinessDaysText, Mode=OneWay, StringFormat=返済期限: {0}}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource CollapseWhenTextNullStyle}" Text="{Binding DeadlineChangeNote, Mode=OneWay}" />
+
+                <TextBlock Margin="0,8,0,0" Style="{StaticResource FieldLabelTextStyle}" Text="保有コスト" />
+                <ItemsControl ItemTemplate="{StaticResource PositionCostLineTemplate}" ItemsSource="{Binding CostLines, Mode=OneWay}" />
+
+                <UniformGrid Margin="0,8,0,0" Columns="2">
+                    <TextBlock Text="{Binding PriceProfitAndLossText, Mode=OneWay, StringFormat=価格損益: {0}}" />
+                    <TextBlock Text="{Binding ConfirmedCostProfitAndLossText, Mode=OneWay, StringFormat=確定コスト控除後: {0}}" />
+                    <TextBlock Text="{Binding EstimatedNetProfitAndLossText, Mode=OneWay, StringFormat=ネット参考損益: {0}}" />
+                    <TextBlock Text="{Binding CostToRRatioText, Mode=OneWay, StringFormat=コスト/R比: {0}}" />
+                </UniformGrid>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <DataTemplate x:Key="PositionListTemplate">
+        <ItemsControl ItemTemplate="{StaticResource PositionCardTemplate}" ItemsSource="{Binding}" />
+    </DataTemplate>
+
+    <DataTemplate x:Key="TradeExecutionRevisionTemplate" DataType="{x:Type vm:TradeExecutionRevisionRowViewModel}">
+        <Grid Margin="16,2,0,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="90" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" FontWeight="SemiBold" Text="{Binding RevisionLabel, Mode=OneWay}" />
+            <TextBlock Grid.Column="1" Text="{Binding ExecutedAtText, Mode=OneWay}" />
+            <TextBlock Grid.Column="2" Text="{Binding PriceText, Mode=OneWay}" />
+            <TextBlock Grid.Column="3" Style="{StaticResource FieldLabelTextStyle}" Text="{Binding Note, Mode=OneWay}" TextWrapping="Wrap" />
+        </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="TradeExecutionCardTemplate" DataType="{x:Type vm:TradeExecutionRowViewModel}">
+        <Border Style="{StaticResource CardBorderStyle}">
+            <StackPanel>
+                <TextBlock Style="{StaticResource SectionHeaderTextStyle}">
+                    <Run Text="{Binding Code, Mode=OneWay}" />
+                    <Run Text=" " />
+                    <Run Text="{Binding Name, Mode=OneWay}" />
+                    <Run Text=" ／ " />
+                    <Run Text="{Binding SideLabel, Mode=OneWay}" />
+                    <Run Text=" ／ " />
+                    <Run Text="{Binding KindLabel, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="{Binding OriginLabel, Mode=OneWay}" />
+                <ItemsControl ItemTemplate="{StaticResource TradeExecutionRevisionTemplate}" ItemsSource="{Binding Revisions, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource CollapseWhenTextNullStyle}" Text="{Binding LotAllocationNote, Mode=OneWay}" />
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <DataTemplate x:Key="TradeHistoryTemplate">
+        <ItemsControl ItemTemplate="{StaticResource TradeExecutionCardTemplate}" ItemsSource="{Binding}" />
+    </DataTemplate>
+
+</ResourceDictionary>
