@@ -125,4 +125,5 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 ## 7. 軽微な改善
 - [x] **AI Verdict の表示方法を検討する**
   - Short 候補に `Bearish` が付けば「AI も同意」、Long 候補に付けば「AI は反対」を意味する。候補方向と切り離して `Bearish` とだけ表示すると誤読されるため、候補方向に対する順張り/逆張りとして見せる（[`ai-analysis.md`](docs/ai-analysis.md)）。
-- [ ] **Purpose の重複を解消する**（[`AGENT.md`](AGENT.md) と [`product-spec.md`](docs/product-spec.md) に同内容があり、片方だけ更新される事故の元）
+- [x] **Purpose の重複を解消する**（[`AGENT.md`](AGENT.md) と [`product-spec.md`](docs/product-spec.md) に同内容があり、片方だけ更新される事故の元）
+  - product-spec.md の Purpose 節を AGENT.md への参照のみに変更し、内容を一本化した。
