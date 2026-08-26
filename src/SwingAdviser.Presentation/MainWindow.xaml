@@ -6,35 +6,168 @@
                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                  xmlns:prism="http://prismlibrary.com/"
                  Title="{Binding Title}"
-                 Width="960"
-                 Height="600"
-                 MinWidth="720"
-                 MinHeight="480"
+                 Width="1440"
+                 Height="900"
+                 MinWidth="1100"
+                 MinHeight="700"
+                 Loaded="Window_Loaded"
                  prism:ViewModelLocator.AutoWireViewModel="True"
                  GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
                  WindowStartupLocation="CenterScreen"
                  mc:Ignorable="d">
-    <Grid Margin="32">
+    <mah:MetroWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <Style x:Key="NoticeText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray2}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </mah:MetroWindow.Resources>
+
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="16" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock FontSize="28"
-                   FontWeight="SemiBold"
-                   Text="日本株スイング判断支援" />
-        <Border Grid.Row="2"
-                Padding="20"
-                BorderBrush="{DynamicResource MahApps.Brushes.Gray5}"
-                BorderThickness="1"
-                CornerRadius="4">
-            <StackPanel>
-                <TextBlock FontSize="18" Text="{Binding StatusMessage}" />
-                <TextBlock Margin="0,8,0,0"
-                           Foreground="{DynamicResource MahApps.Brushes.Gray2}"
-                           Text="分析と記録による判断支援を行います。注文・自動売買は実行しません。" />
-            </StackPanel>
+        <Border Padding="12" Background="{DynamicResource MahApps.Brushes.Gray9}" CornerRadius="4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="日本株スイング判断支援" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource NoticeText}" Text="{Binding SafetyNotice}" />
+                    <TextBlock Margin="0,3,0,0" FontWeight="SemiBold" Text="{Binding DatabaseNotice}" TextWrapping="Wrap" />
+                    <TextBlock Margin="0,4,0,0" Foreground="DarkRed" Text="{Binding ErrorMessage}"
+                               Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="16,0,0,0" HorizontalAlignment="Right">
+                    <Button Padding="12,5" Command="{Binding ReloadCommand}" Content="SQLiteを再読込" />
+                    <ProgressBar Height="4" Margin="0,6,0,0" IsIndeterminate="True"
+                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+            </Grid>
         </Border>
+
+        <Grid Grid.Row="1" Margin="0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding StatusMessage}" />
+            <TextBlock Grid.Column="1" Style="{StaticResource NoticeText}" Text="{Binding LastLoadedText}" />
+        </Grid>
+
+        <TabControl Grid.Row="2">
+            <TabItem Header="候補">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" ItemsSource="{Binding Candidates}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                            <DataGridTextColumn Width="150" Binding="{Binding Name}" Header="銘柄名" />
+                            <DataGridTextColumn Width="100" Binding="{Binding SideLabel}" Header="Long/Short" />
+                            <DataGridTemplateColumn Width="55" Header="種別">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="Entry" /></DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Width="115" Binding="{Binding EvaluationBarDateText}" Header="判定基準バー日" />
+                            <DataGridTextColumn Width="145" Binding="{Binding AnalyzedAtText}" Header="分析実行日時" />
+                            <DataGridTextColumn Width="150" Binding="{Binding StrategyLabel}" Header="適用戦略" />
+                            <DataGridTextColumn Width="60" Binding="{Binding Score}" Header="スコア" />
+                            <DataGridTextColumn Width="65" Binding="{Binding ConfidenceLabel}" Header="信頼度" />
+                            <DataGridTextColumn Width="240" Binding="{Binding PrimaryReason}" Header="主な判定理由" />
+                            <DataGridTextColumn Width="150" Binding="{Binding AiStateText}" Header="AI状態" />
+                            <DataGridTextColumn Width="190" Binding="{Binding AiAlignmentText}" Header="AI整合" />
+                            <DataGridTextColumn Width="190" Binding="{Binding ShortAvailabilityText}" Header="売建可否" />
+                            <DataGridTemplateColumn Width="130" Header="操作">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Command="{Binding DataContext.RequestCandidateEntryCommand, RelativeSource={RelativeSource AncestorType=mah:MetroWindow}}"
+                                                CommandParameter="{Binding}" Content="候補から登録" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="1" Margin="0,8,0,0" Style="{StaticResource NoticeText}" Text="{Binding ScoreCaption}" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="保有">
+                <DataGrid Margin="8" AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" ItemsSource="{Binding Positions}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                        <DataGridTextColumn Width="150" Binding="{Binding Name}" Header="銘柄名" />
+                        <DataGridTextColumn Width="100" Binding="{Binding SideLabel}" Header="Long/Short" />
+                        <DataGridTemplateColumn Width="55" Header="種別">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="Exit" /></DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Width="90" Binding="{Binding QuantityText}" Header="数量" />
+                        <DataGridTextColumn Width="115" Binding="{Binding EntryPriceText}" Header="エントリー時価格" />
+                        <DataGridTextColumn Width="120" Binding="{Binding CurrentPriceText}" Header="現在価格（参考）" />
+                        <DataGridTextColumn Width="105" Binding="{Binding PriceProfitAndLossText}" Header="価格損益" />
+                        <DataGridTextColumn Width="115" Binding="{Binding EvaluationBarDateText}" Header="判定基準バー日" />
+                        <DataGridTextColumn Width="140" Binding="{Binding StrategyLabel}" Header="適用戦略" />
+                        <DataGridTextColumn Width="140" Binding="{Binding DecisionLabel}" Header="決済判定" />
+                        <DataGridTextColumn Width="250" Binding="{Binding DecisionReason}" Header="主な判定理由" />
+                        <DataGridTextColumn Width="105" Binding="{Binding StopPriceText}" Header="損切候補" />
+                        <DataGridTextColumn Width="105" Binding="{Binding TakeProfitPriceText}" Header="利確候補" />
+                        <DataGridTextColumn Width="150" Binding="{Binding TermText}" Header="返済期限" />
+                        <DataGridTextColumn Width="160" Binding="{Binding ReconciliationText}" Header="要照合状態" />
+                        <DataGridTemplateColumn Width="130" Header="操作">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Command="{Binding DataContext.RequestPositionExitCommand, RelativeSource={RelativeSource AncestorType=mah:MetroWindow}}"
+                                            CommandParameter="{Binding}" Content="保有から登録" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="履歴">
+                <DataGrid Margin="8" AutoGenerateColumns="False" IsReadOnly="True" ItemsSource="{Binding Executions}" RowDetailsVisibilityMode="VisibleWhenSelected">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                        <DataGridTextColumn Width="160" Binding="{Binding Name}" Header="銘柄名" />
+                        <DataGridTextColumn Width="110" Binding="{Binding SideLabel}" Header="Long/Short" />
+                        <DataGridTextColumn Width="80" Binding="{Binding KindLabel}" Header="種別" />
+                        <DataGridTextColumn Width="180" Binding="{Binding OriginLabel}" Header="登録元" />
+                        <DataGridTextColumn Width="100" Binding="{Binding CurrentRevision.PriceText}" Header="現行価格" />
+                        <DataGridTextColumn Width="100" Binding="{Binding CurrentRevision.QuantityText}" Header="現行数量" />
+                        <DataGridTextColumn Width="150" Binding="{Binding CurrentRevision.ExecutedAtText}" Header="約定日時" />
+                        <DataGridTemplateColumn Width="100" Header="操作">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Command="{Binding DataContext.RequestCorrectionCommand, RelativeSource={RelativeSource AncestorType=mah:MetroWindow}}"
+                                            CommandParameter="{Binding}" Content="訂正" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                    <DataGrid.RowDetailsTemplate>
+                        <DataTemplate>
+                            <ItemsControl Margin="24,4" ItemsSource="{Binding Revisions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Margin="0,2" TextWrapping="Wrap">
+                                            <Run Text="{Binding RevisionText, Mode=OneWay}" /><Run Text=" / 約定 " /><Run Text="{Binding ExecutedAtText, Mode=OneWay}" />
+                                            <Run Text=" / " /><Run Text="{Binding PriceText, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding QuantityText, Mode=OneWay}" />
+                                            <Run Text=" / 利用者確認 " /><Run Text="{Binding UserConfirmedAtText, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding Note, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DataTemplate>
+                    </DataGrid.RowDetailsTemplate>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </mah:MetroWindow>

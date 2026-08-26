@@ -85,7 +85,7 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
     - **検証済み（2026-08-25）**: .NET 10.0.400 SDK導入後（`global.json` を `10.0.303`→`10.0.400` に更新）、`dotnet build` / `dotnet test`（25/25成功）/ 実起動を確認。実際にウィンドウを操作し、3案の切替（F1/F2/F3、状態が引き継がれることを確認）、候補一覧の列表示、AI状態バッジ、売建可否（不明/規制あり/売建不可の書き分け）、保有ポジション明細（コスト未調整の建値候補注記、未公表/確定の書き分け）を目視確認済み。
     - 実機テストで発見・修正したバグ: (1) XAML `mc:Ignorable="d"` に `xmlns:d` 未宣言、(2) `Style.Setter` で `TargetName` を使用（ControlTemplate外では不可）、(3) `MockScenarioState` コンストラクタでコマンド初期化前に `LoadScenario` を呼びNRE、(4) 案間で共有する `ResourceDictionary`（`SharedTemplates.*.xaml`）が他ファイルの `StaticResource` を解決できない、(5) 「再試行」ボタンの活性条件が失敗系のみで情報不足/キャンセル/旧結果から再試行できなかった、(6) 案Bの詳細ペインが未選択時にラベルだけの中途半端な表示になっていた（プレースホルダーを追加）、(7) 案Cの「期限接近」タイルが「期限不明」を誤って合算していた。いずれも修正・再ビルド確認済み。
     - **採用案決定（2026-08-26）**: 案A（タブ切替型）に確定。案B（マスタ詳細2ペイン型）・案C（ダッシュボード型）は不採用。
-    - **次アクション（未実施）**: 案Aを `src/SwingAdviser.Presentation` へ移植し、`mocks/` ディレクトリ一式（案B/Cを含む）を削除する。移植対象は直下の「案A 追加修正」に記載した保有タブのDataGrid化・Exit登録フロー・Entry/Current価格列を含む、2026-08-26時点の案Aの状態。移植時に`MockShellWindow`/`MockScenarioState`等のモック専用配線（F1/F2/F3切替、起動時オーバーレイ）は実装に含めない。
+    - **移植完了（2026-08-26）**: 案Aを `src/SwingAdviser.Presentation` へ移植し、`mocks/SwingAdviser.UiMock` のソースとソリューション登録を削除した。候補/保有/履歴タブ、保有DataGrid、Entry/Current価格列、Entry/Exitの手動登録、訂正revision表示を本番Application/SQLite接続へ置換し、F1/F2/F3切替・起動時オーバーレイ等のモック専用配線は含めていない。
     - **案A 追加修正（2026-08-26、Claude Codeが実施。Codexレビュー未実施＝下記を引き継ぎ用に明記）**:
       - 上部レイアウトを「日次更新」固定枠→タブ（候補/保有/履歴）の順に入替（`Variants/A/TabbedVariantView.xaml`）。固定表示物を先に置く方が利用者の視線導線に合うという判断。
       - 「保有」セクションをカード列からDataGridへ変更し、候補タブと同じ「一覧＋主な判定理由＋操作」の構造に統一（案A限定、案B/Cのカード型 `PositionCardTemplate` は未変更）。列: コード/銘柄名/Long-Short（frozen）+ 種別(Exit固定)/数量/エントリー時価格/現在価格（参考）/価格損益/判定基準バー日/適用戦略/決済判定/主な判定理由/損切候補/利確候補/返済期限/要照合状態/操作。
@@ -95,14 +95,16 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
       - `MockPositionSeed` に `EntryBasisPrice`（現在基準の取得単価、要照合中は`null`→「算出不可（要照合中）」表示）と `CurrentPrice`（参考現在価格。約定価格へ自動採用しない）を追加。
       - **モックデータの内部不整合を修正**: Entry/Current価格列を追加する過程で、既存の `PriceProfitAndLoss`（価格損益）が各行の固定ATR・損切倍率・R倍率・決済判定文言と矛盾していることが判明（例: コード9101は「損切候補」判定なのに価格損益が+142,000円の利益表示だった）。コード7203/6920/8035/9101の4件について、価格損益・確定コスト控除後損益・ネット参考損益をATR/R倍率と整合する値へ修正した（コード1605はReconciliation Required、コード4385は元々整合していたため変更なし）。実装ロジックのバグではなく手書きモックデータの整合性修正。
       - **申し送り**: 上記はすべて未コミット（作業ツリー変更のみ）。Codexのstop-review-gateはこのリポジトリでは未有効化（`/codex:setup`未実施）のため自動レビューは走っていない。案Aで確定したため案B/Cへの反映は不要（`mocks/`削除時に一緒に廃棄）。実装移植時は本項目を確認すること。
-- [ ] **Application の主要ユースケースを実装し、UIをローカルSQLiteへ接続する**
+- [x] **Application の主要ユースケースを実装し、UIをローカルSQLiteへ接続する**
   - UIモックで確定した画面契約を使い、候補参照、保有参照、手動約定登録・訂正、進捗・エラー表示を Application 層経由で動かす。ViewModelからDbContextやRepositoryを直接操作しない。
   - 外部APIへはまだ接続せず、再現可能なローカルテストデータを投入できる開発用経路を用意する。実運用DBとテストDBを混同しない。
   - **引継ぎ**: `mocks/SwingAdviser.UiMock/Shared/MockLabels.cs` のラベル整形ロジック（AI verdictは候補方向とセットで表示、コスト欠損は¥0にしない、売建可否不明を可能と推測しない 等）を本番の表示ロジックとして移植し、以下3点は必ずテストで担保する: (1) `CostAmountLabel` が `Unpublished`/`FetchFailed`/`Unknown`/`NotOccurred` で `¥0` を含む文字列を返さない、(2) `AiVerdictAlignmentLabel` が Long/Short×Bullish/Neutral/Bearish/nullの全組み合わせで整合ラベルなしの裸の強気/弱気を返さない、(3) `ShortAvailabilityLabel(Unknown)` が「不明」を含み「可」を含まない。モック側のコピーはこの移植後に削除してよい。
-- [ ] **ローカル結合版を起動し、実際の画面操作で一連の動作を検証する**
+  - **実装結果（2026-08-26）**: `TradingWorkspaceService` と `ITradingWorkspaceRepository` をApplication境界に追加し、候補/保有/履歴照会、利用者確認済み約定の登録、明示lot配分、訂正revision追記を実装した。InfrastructureのSQLite実装はtransaction内で企業アクション調整後のlot残数量、要照合状態、楽観的revision一致を検証し、約定訂正後は元のOpen/Closed状態を維持したまま依存データを要照合にする。`--development-data` で実運用DBと別の `swing-adviser.development.db` を使用し、冪等なローカル結合データを投入できる。ラベル3要件を含むPresentationテスト14件、Application/Repository/seedを含むInfrastructureテスト33件が成功。
+- [x] **ローカル結合版を起動し、実際の画面操作で一連の動作を検証する**
   - **実施タイミング**: Domainモデル、`AddBusinessSchema`、Repository、主要Applicationユースケース、UI接続が揃った後。セクション4のバックテストおよびセクション5の外部データ接続より前に実施する。
   - テストデータを使い、起動 → 一覧表示 → 詳細確認 → 利用者入力 → 確認 → SQLite保存 → 再起動後の再表示 → 訂正revision追加までを操作する。
   - Long/Short・Entry/Exitの誤読、入力検証、キャンセル、多重実行防止、進捗、失敗表示を確認し、分析結果や現在値から売買履歴が自動生成されないことも確認する。
+  - **実機確認（2026-08-26）**: 開発用DBで起動し、候補2件/保有1件/約定1件の初期表示、候補/保有/履歴タブ切替をUI Automationで確認。候補から登録を開いた時点で銘柄/方向だけが引き継がれ、約定日・時刻・価格・株数を含む編集欄7個が空であることを確認した。確認画面を経て7203 Longの新規建を登録し、候補2件/保有2件/約定2件へ再読込されたこと、空入力は検証エラーになりキャンセル後も件数不変であることを確認。画面から価格2800円→2810円の訂正理由付きrevisionを追記し、再起動後にrev1/¥2,800とrev2/¥2,810が履歴詳細へ復元されたことを確認した。履歴詳細展開時に発見した`Run.Text`のTwoWayバインド例外はOneWay固定へ修正済み。
 
 ## 4. 仮決定パラメータの検証・調整（実装後にバックテスト等で見直す前提）
 - [ ] **バックテスト基盤を構築する**（以下の検証タスクすべての前提。[`technical-analysis.md`](docs/technical-analysis.md) Look-ahead bias 節の規則をバックテストにも適用すること）

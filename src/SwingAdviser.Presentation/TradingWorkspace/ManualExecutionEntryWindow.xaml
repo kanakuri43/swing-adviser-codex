@@ -1,0 +1,118 @@
+<mah:MetroWindow x:Class="SwingAdviser.Presentation.TradingWorkspace.ManualExecutionEntryWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+                 Title="{Binding Title}"
+                 Width="680"
+                 Height="720"
+                 MinWidth="600"
+                 MinHeight="620"
+                 Owner="{x:Null}"
+                 WindowStartupLocation="CenterOwner">
+    <mah:MetroWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </mah:MetroWindow.Resources>
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="{Binding Title}" />
+            <TextBlock Margin="0,8,0,0" FontSize="16" FontWeight="SemiBold" Text="{Binding InstrumentHeader}" />
+            <TextBlock Margin="0,4,0,0" Text="{Binding KindText, StringFormat=種別: {0}}" />
+            <Border Margin="0,12,0,0" Padding="10" Background="#FFFFF4CC" CornerRadius="4">
+                <TextBlock Text="{Binding EntryBoundaryNotice}" TextWrapping="Wrap" />
+            </Border>
+            <TextBlock Margin="0,8,0,0" Foreground="DarkRed" Text="{Binding ValidationMessage}" TextWrapping="Wrap"
+                       Visibility="{Binding HasValidationMessage, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,12" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Margin="0,6" VerticalAlignment="Center" Text="約定日 *" />
+                    <DatePicker Grid.Column="1" Margin="0,4" SelectedDate="{Binding ExecutedDate}" />
+                    <TextBlock Grid.Row="1" Margin="0,6" VerticalAlignment="Center" Text="約定時刻 *" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Margin="0,4" Text="{Binding ExecutedTime, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Grid.Row="2" Margin="0,6" VerticalAlignment="Center" Text="約定価格（円）*" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Margin="0,4" Text="{Binding PriceText, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Grid.Row="3" Margin="0,6" VerticalAlignment="Center" Text="株数 *" />
+                    <TextBox Grid.Row="3" Grid.Column="1" Margin="0,4" Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Grid.Row="4" Margin="0,6" VerticalAlignment="Center" Text="充当lot *"
+                               Visibility="{Binding IsClose, Converter={StaticResource BoolToVisibility}}" />
+                    <ItemsControl Grid.Row="4" Grid.Column="1" Margin="0,4" ItemsSource="{Binding LotAllocations}"
+                                  Visibility="{Binding IsClose, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="90" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="{Binding DisplayLabel}" TextWrapping="Wrap" />
+                                    <TextBox Grid.Column="1" Margin="8,0,0,0" Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Grid.Row="5" Margin="0,6" VerticalAlignment="Center" Text="証券会社" />
+                    <TextBox Grid.Row="5" Grid.Column="1" Margin="0,4" Text="{Binding Broker}" />
+                    <TextBlock Grid.Row="6" Margin="0,6" VerticalAlignment="Center" Text="外部参照番号" />
+                    <TextBox Grid.Row="6" Grid.Column="1" Margin="0,4" Text="{Binding ExternalReference}" />
+                    <TextBlock Grid.Row="7" Margin="0,6" VerticalAlignment="Center" Text="メモ" />
+                    <TextBox Grid.Row="7" Grid.Column="1" Height="70" Margin="0,4" AcceptsReturn="True" Text="{Binding Memo}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="8" Margin="0,6" VerticalAlignment="Center" Text="訂正理由 *"
+                               Visibility="{Binding IsCorrection, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBox Grid.Row="8" Grid.Column="1" Height="55" Margin="0,4" AcceptsReturn="True"
+                             Text="{Binding CorrectionReason}" TextWrapping="Wrap"
+                             Visibility="{Binding IsCorrection, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+
+                <Border Padding="16" BorderBrush="{DynamicResource MahApps.Brushes.Gray5}" BorderThickness="1" CornerRadius="4"
+                        Visibility="{Binding IsConfirming, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Text="登録内容の最終確認" />
+                        <TextBlock Margin="0,12,0,0" Text="{Binding ConfirmationSummary}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,12,0,0" FontWeight="SemiBold" Foreground="DarkRed"
+                                   Text="この操作は注文を送りません。ローカルの約定履歴へ追記します。" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ProgressBar Width="160" Height="5" VerticalAlignment="Center" IsIndeterminate="True"
+                         Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+            <Button Grid.Column="1" MinWidth="100" Margin="0,0,8,0" Padding="12,6" Command="{Binding BackToEditCommand}"
+                    Content="入力へ戻る" Visibility="{Binding IsConfirming, Converter={StaticResource BoolToVisibility}}" />
+            <Button Grid.Column="2" MinWidth="120" Padding="12,6" Command="{Binding ConfirmCommand}"
+                    Content="内容を確認" Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}" />
+            <Button Grid.Column="2" MinWidth="120" Padding="12,6" Command="{Binding SaveCommand}"
+                    Content="確認して保存" Visibility="{Binding IsConfirming, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </Grid>
+</mah:MetroWindow>
