@@ -161,6 +161,16 @@ public static class MockLabels
         _ => decision.Value.ToString(),
     };
 
+    public static MockSeverity DecisionSeverity(ExitDecision? decision) => decision switch
+    {
+        null => MockSeverity.Muted,
+        ExitDecision.Hold => MockSeverity.Neutral,
+        ExitDecision.TakeProfit => MockSeverity.Positive,
+        ExitDecision.StopLoss => MockSeverity.Critical,
+        ExitDecision.Exit => MockSeverity.Caution,
+        _ => MockSeverity.Neutral,
+    };
+
     /// <summary>
     /// 欠損（未公表/取得失敗/不明/不発生）を ¥0 と混同しない。KnownZero だけが「¥0（確定）」になる。
     /// </summary>

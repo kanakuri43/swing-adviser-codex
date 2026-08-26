@@ -76,7 +76,7 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
   - 54業務テーブル、canonical UUID/UTC/date/decimal変換、FK索引、CHECK/filtered unique、append-only/運用状態トリガーを `AddBusinessSchema` へ実装済み。
   - DomainモデルはEF rowから分離し、利用者確認済み約定だけを生成できる境界、revision直系訂正、信用コストの欠損/0/確定優先、AI状態を不変条件として実装済み。
   - migration適用、schema/integrity、FK `RESTRICT`/索引、immutable/terminal更新拒否、revision分岐拒否、point-in-time price set/manifest再構築をテスト済み。
-- [ ] **主要画面のUIモックを起動し、デザインを利用者と確認する**
+- [x] **主要画面のUIモックを起動し、デザインを利用者と確認する**
   - **実施タイミング**: Domain/Application の主要ユースケースと画面表示用データ契約が固まり、実DB・外部APIへ接続する前。モックデータだけで候補一覧、保有ポジション、約定履歴、手動約定登録、進捗・エラー・AI状態を一通り遷移できる状態にする。
   - Long/Short、Entry/Exit、参考情報と利用者入力の境界が誤読されないこと、重要情報の優先順位、ウィンドウサイズ変更時のレイアウト、確認操作の分かりやすさを実際に起動して確認する。
   - 確認結果を反映してから実データ接続と画面実装を進め、手戻りを抑える。モックから売買履歴を自動生成したり、実注文へつながる導線は作らない。
@@ -84,8 +84,17 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
     - 起動: `dotnet run --project .\mocks\SwingAdviser.UiMock\SwingAdviser.UiMock.csproj`
     - **検証済み（2026-08-25）**: .NET 10.0.400 SDK導入後（`global.json` を `10.0.303`→`10.0.400` に更新）、`dotnet build` / `dotnet test`（25/25成功）/ 実起動を確認。実際にウィンドウを操作し、3案の切替（F1/F2/F3、状態が引き継がれることを確認）、候補一覧の列表示、AI状態バッジ、売建可否（不明/規制あり/売建不可の書き分け）、保有ポジション明細（コスト未調整の建値候補注記、未公表/確定の書き分け）を目視確認済み。
     - 実機テストで発見・修正したバグ: (1) XAML `mc:Ignorable="d"` に `xmlns:d` 未宣言、(2) `Style.Setter` で `TargetName` を使用（ControlTemplate外では不可）、(3) `MockScenarioState` コンストラクタでコマンド初期化前に `LoadScenario` を呼びNRE、(4) 案間で共有する `ResourceDictionary`（`SharedTemplates.*.xaml`）が他ファイルの `StaticResource` を解決できない、(5) 「再試行」ボタンの活性条件が失敗系のみで情報不足/キャンセル/旧結果から再試行できなかった、(6) 案Bの詳細ペインが未選択時にラベルだけの中途半端な表示になっていた（プレースホルダーを追加）、(7) 案Cの「期限接近」タイルが「期限不明」を誤って合算していた。いずれも修正・再ビルド確認済み。
-    - 未実施: 利用者自身によるデザイン比較・採用案の決定（このタスクの本来の目的）。3案とも起動可能な状態。
-    - 採用案が決まったら `src/SwingAdviser.Presentation` へ移植し、`mocks/` は削除する。
+    - **採用案決定（2026-08-26）**: 案A（タブ切替型）に確定。案B（マスタ詳細2ペイン型）・案C（ダッシュボード型）は不採用。
+    - **次アクション（未実施）**: 案Aを `src/SwingAdviser.Presentation` へ移植し、`mocks/` ディレクトリ一式（案B/Cを含む）を削除する。移植対象は直下の「案A 追加修正」に記載した保有タブのDataGrid化・Exit登録フロー・Entry/Current価格列を含む、2026-08-26時点の案Aの状態。移植時に`MockShellWindow`/`MockScenarioState`等のモック専用配線（F1/F2/F3切替、起動時オーバーレイ）は実装に含めない。
+    - **案A 追加修正（2026-08-26、Claude Codeが実施。Codexレビュー未実施＝下記を引き継ぎ用に明記）**:
+      - 上部レイアウトを「日次更新」固定枠→タブ（候補/保有/履歴）の順に入替（`Variants/A/TabbedVariantView.xaml`）。固定表示物を先に置く方が利用者の視線導線に合うという判断。
+      - 「保有」セクションをカード列からDataGridへ変更し、候補タブと同じ「一覧＋主な判定理由＋操作」の構造に統一（案A限定、案B/Cのカード型 `PositionCardTemplate` は未変更）。列: コード/銘柄名/Long-Short（frozen）+ 種別(Exit固定)/数量/エントリー時価格/現在価格（参考）/価格損益/判定基準バー日/適用戦略/決済判定/主な判定理由/損切候補/利確候補/返済期限/要照合状態/操作。
+      - 決済判定（Hold/利確候補/損切候補/決済候補）に `SeverityBadge` を追加（`MockLabels.DecisionSeverity`）。
+      - 保有一覧にAI状態・スコア・信頼度列は追加していない。理由: `docs/ai-analysis.md:32`「保有ポジション向けのAI判定はプロンプトと意味が異なるため初期対象外」、`docs/product-spec.md:40`「保有ポジションのAIチェックは対象外」という既存の仮決定を維持する方針を利用者に確認済み（AI チェック対象拡張は別途要検討・未決定のまま）。
+      - Exit側の登録フローを候補側（Entry）と対にした: `PositionListViewModel.RequestManualEntryCommand` を追加し、`Decision` が `TakeProfit`/`StopLoss`/`Exit` のときだけ「保有から登録」ボタンを有効化（Hold中は`CanExecute`でボタン無効化）。押すと既存の手動約定登録ダイアログを `ExecutionKind.Close` 初期選択で開く（`ManualExecutionEntryViewModel.Prefill` に `initialKind` 引数を追加）。渡すのは銘柄コード/銘柄名/Long-Shortのみで、価格・日時・株数・充当lotは従来通り利用者入力（AGENT.md Non-negotiable rules 準拠）。
+      - `MockPositionSeed` に `EntryBasisPrice`（現在基準の取得単価、要照合中は`null`→「算出不可（要照合中）」表示）と `CurrentPrice`（参考現在価格。約定価格へ自動採用しない）を追加。
+      - **モックデータの内部不整合を修正**: Entry/Current価格列を追加する過程で、既存の `PriceProfitAndLoss`（価格損益）が各行の固定ATR・損切倍率・R倍率・決済判定文言と矛盾していることが判明（例: コード9101は「損切候補」判定なのに価格損益が+142,000円の利益表示だった）。コード7203/6920/8035/9101の4件について、価格損益・確定コスト控除後損益・ネット参考損益をATR/R倍率と整合する値へ修正した（コード1605はReconciliation Required、コード4385は元々整合していたため変更なし）。実装ロジックのバグではなく手書きモックデータの整合性修正。
+      - **申し送り**: 上記はすべて未コミット（作業ツリー変更のみ）。Codexのstop-review-gateはこのリポジトリでは未有効化（`/codex:setup`未実施）のため自動レビューは走っていない。案Aで確定したため案B/Cへの反映は不要（`mocks/`削除時に一緒に廃棄）。実装移植時は本項目を確認すること。
 - [ ] **Application の主要ユースケースを実装し、UIをローカルSQLiteへ接続する**
   - UIモックで確定した画面契約を使い、候補参照、保有参照、手動約定登録・訂正、進捗・エラー表示を Application 層経由で動かす。ViewModelからDbContextやRepositoryを直接操作しない。
   - 外部APIへはまだ接続せず、再現可能なローカルテストデータを投入できる開発用経路を用意する。実運用DBとテストDBを混同しない。

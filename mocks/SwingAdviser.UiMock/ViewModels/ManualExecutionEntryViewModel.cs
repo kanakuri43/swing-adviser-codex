@@ -156,12 +156,12 @@ public sealed class ManualExecutionEntryViewModel : BindableBase
     public DelegateCommand BackToEditCommand { get; }
     public DelegateCommand RegisterCommand { get; }
 
-    public void Prefill(string code, string name, PositionSide side)
+    public void Prefill(string code, string name, PositionSide side, ExecutionKind initialKind = ExecutionKind.Open)
     {
         Code = code;
         Name = name;
         Side = side;
-        Kind = ExecutionKind.Open;
+        Kind = initialKind;
         ExecutedAtDate = null;
         ExecutedAtTime = string.Empty;
         PriceText = string.Empty;

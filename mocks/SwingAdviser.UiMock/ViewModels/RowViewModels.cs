@@ -140,11 +140,19 @@ public sealed class PositionRowViewModel
 
     public string Code => Seed.Code;
     public string Name => Seed.Name;
+    public PositionSide Side => Seed.Side;
     public string SideLabel => MockLabels.PositionSideLabel(Seed.Side);
     public long Quantity => Seed.Quantity;
+    public string QuantityText => $"{Quantity:#,0}株";
     public string AppliedStrategy => Seed.AppliedStrategy;
     public string DecisionLabel => MockLabels.DecisionLabel(Seed.Decision);
+    public MockSeverity DecisionSeverity => MockLabels.DecisionSeverity(Seed.Decision);
+
+    /// <summary>Hold以外（利確/損切/決済候補）のときだけ、この保有からの手動約定登録を許可する。</summary>
+    public bool IsExitActionable => Seed.Decision is ExitDecision.TakeProfit or ExitDecision.StopLoss or ExitDecision.Exit;
+
     public string DecisionReason => Seed.DecisionReason;
+    public string EvaluationBarDateText => MockLabels.EvaluationBarDateText(Seed.EvaluationBarDate);
     public string EvaluationBarDateLabel => MockLabels.EvaluationBarDateLabel(Seed.EvaluationBarDate);
 
     public string FixedAtrText => $"固定ATR {Seed.FixedAtr:0.0}（基準日 {Seed.AtrReferenceBarDate:yyyy-MM-dd}、期間{Seed.AtrPeriod}日）";
@@ -154,6 +162,12 @@ public sealed class PositionRowViewModel
     public string StopMultiplierText => $"損切倍率 {Seed.StopMultiplier:0.0}";
     public string StopPriceText => MockLabels.FormatYen(Seed.StopPrice);
     public string TakeProfitPriceText => MockLabels.FormatYen(Seed.TakeProfitPrice);
+
+    /// <summary>現在基準（分割等調整後）のエントリー時価格。企業アクション要照合中は算出しない。</summary>
+    public string EntryPriceText => Seed.EntryBasisPrice is { } entry ? MockLabels.FormatYen(entry) : "算出不可（要照合中）";
+
+    /// <summary>参考情報としての現在価格。約定価格として自動採用しない。</summary>
+    public string CurrentPriceText => Seed.CurrentPrice is { } current ? MockLabels.FormatYen(current) : "算出不可（要照合中）";
 
     public string PartialExitText => MockLabels.PartialExitLabel(Seed.PartialExitStatus, Seed.PartialExitQuantity, Seed.PartialExitEffectiveFraction, Seed.PartialExitNote);
 

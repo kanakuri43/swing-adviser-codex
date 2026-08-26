@@ -141,7 +141,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 48.5m, AtrReferenceBarDate: new DateOnly(2026, 7, 14), AtrPeriod: 14, StopMultiplier: 3.0m,
             CurrentAtrReferenceOnly: 55.2m,
-            StopPrice: 2702.5m, TakeProfitPrice: 3066.3m,
+            EntryBasisPrice: 2848.0m, StopPrice: 2702.5m, TakeProfitPrice: 3066.3m, CurrentPrice: 3022.6m,
             PartialExitStatus: PartialExitStatus.NotApplicable, PartialExitQuantity: null, PartialExitEffectiveFraction: null,
             PartialExitNote: "1.2R到達（1.5R未達）",
             ReconciliationStatus: ReconciliationStatus.Clear,
@@ -153,7 +153,7 @@ public static class MockDataSet
                 new MockCostLineSeed(MarginCostType.BuyerInterest, "買方金利", CostDirection.Charge, CostValuationKind.Confirmed, AmountStatus.KnownAmount, 1240m),
                 new MockCostLineSeed(MarginCostType.Backwardation, "逆日歩", CostDirection.Credit, CostValuationKind.Confirmed, AmountStatus.NotOccurred, null),
             },
-            PriceProfitAndLoss: 125000m, ConfirmedCostProfitAndLoss: 123760m, EstimatedNetProfitAndLoss: 123760m, CostToRRatio: 0.02m),
+            PriceProfitAndLoss: 87300m, ConfirmedCostProfitAndLoss: 86060m, EstimatedNetProfitAndLoss: 86060m, CostToRRatio: 0.02m),
 
         new(
             Code: "6920", Name: "レーザーテック", Side: PositionSide.Short, Quantity: 300,
@@ -162,7 +162,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 310m, AtrReferenceBarDate: new DateOnly(2026, 8, 11), AtrPeriod: 14, StopMultiplier: 2.5m,
             CurrentAtrReferenceOnly: 340m,
-            StopPrice: 22925m, TakeProfitPrice: 20987.5m,
+            EntryBasisPrice: 22150m, StopPrice: 22925m, TakeProfitPrice: 20987.5m, CurrentPrice: 20987.5m,
             PartialExitStatus: PartialExitStatus.Candidate, PartialExitQuantity: 100, PartialExitEffectiveFraction: 0.333m,
             PartialExitNote: "建値候補（コスト未調整）— 手数料・金利・貸株料・逆日歩・配当相当額・スリッページを含む損益ゼロを保証しません",
             ReconciliationStatus: ReconciliationStatus.Clear,
@@ -174,7 +174,7 @@ public static class MockDataSet
                 new MockCostLineSeed(MarginCostType.StockLendingFee, "貸株料", CostDirection.Charge, CostValuationKind.Estimate, AmountStatus.KnownAmount, 3400m),
                 new MockCostLineSeed(MarginCostType.Backwardation, "逆日歩", CostDirection.Charge, CostValuationKind.Confirmed, AmountStatus.Unpublished, null),
             },
-            PriceProfitAndLoss: 34500m, ConfirmedCostProfitAndLoss: 34500m, EstimatedNetProfitAndLoss: 31100m, CostToRRatio: 0.31m),
+            PriceProfitAndLoss: 348750m, ConfirmedCostProfitAndLoss: 348750m, EstimatedNetProfitAndLoss: 345350m, CostToRRatio: 0.31m),
 
         new(
             Code: "8035", Name: "東京エレクトロン", Side: PositionSide.Long, Quantity: 100,
@@ -183,7 +183,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 820m, AtrReferenceBarDate: new DateOnly(2026, 8, 5), AtrPeriod: 14, StopMultiplier: 3.0m,
             CurrentAtrReferenceOnly: 790m,
-            StopPrice: 38740m, TakeProfitPrice: 44890m,
+            EntryBasisPrice: 41200m, StopPrice: 38740m, TakeProfitPrice: 44890m, CurrentPrice: 44890m,
             PartialExitStatus: PartialExitStatus.NotFeasible, PartialExitQuantity: null, PartialExitEffectiveFraction: null,
             PartialExitNote: "売買単位100株、50%=50株 < 1単位のため分割不能",
             ReconciliationStatus: ReconciliationStatus.Clear,
@@ -194,7 +194,7 @@ public static class MockDataSet
             {
                 new MockCostLineSeed(MarginCostType.BuyerInterest, "買方金利", CostDirection.Charge, CostValuationKind.Confirmed, AmountStatus.KnownAmount, 610m),
             },
-            PriceProfitAndLoss: 37000m, ConfirmedCostProfitAndLoss: 36390m, EstimatedNetProfitAndLoss: 36390m, CostToRRatio: 0.025m),
+            PriceProfitAndLoss: 369000m, ConfirmedCostProfitAndLoss: 368390m, EstimatedNetProfitAndLoss: 368390m, CostToRRatio: 0.025m),
 
         new(
             Code: "1605", Name: "INPEX", Side: PositionSide.Long, Quantity: 200,
@@ -203,7 +203,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 62m, AtrReferenceBarDate: new DateOnly(2026, 5, 20), AtrPeriod: 14, StopMultiplier: 3.0m,
             CurrentAtrReferenceOnly: null,
-            StopPrice: 1980m, TakeProfitPrice: 2230m,
+            EntryBasisPrice: null, StopPrice: 1980m, TakeProfitPrice: 2230m, CurrentPrice: null,
             PartialExitStatus: PartialExitStatus.NotApplicable, PartialExitQuantity: null, PartialExitEffectiveFraction: null,
             PartialExitNote: null,
             ReconciliationStatus: ReconciliationStatus.Required,
@@ -223,7 +223,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 95m, AtrReferenceBarDate: new DateOnly(2026, 6, 2), AtrPeriod: 14, StopMultiplier: 2.5m,
             CurrentAtrReferenceOnly: 101m,
-            StopPrice: 4417.5m, TakeProfitPrice: 3823.75m,
+            EntryBasisPrice: 4180m, StopPrice: 4417.5m, TakeProfitPrice: 3823.75m, CurrentPrice: 4417.5m,
             PartialExitStatus: PartialExitStatus.NotApplicable, PartialExitQuantity: null, PartialExitEffectiveFraction: null,
             PartialExitNote: null,
             ReconciliationStatus: ReconciliationStatus.Clear,
@@ -235,7 +235,7 @@ public static class MockDataSet
                 new MockCostLineSeed(MarginCostType.Backwardation, "逆日歩", CostDirection.Charge, CostValuationKind.Confirmed, AmountStatus.KnownAmount, 12800m),
                 new MockCostLineSeed(MarginCostType.DividendEquivalent, "配当金相当額", CostDirection.Charge, CostValuationKind.Estimate, AmountStatus.KnownAmount, 8500m),
             },
-            PriceProfitAndLoss: 142000m, ConfirmedCostProfitAndLoss: 129200m, EstimatedNetProfitAndLoss: 120700m, CostToRRatio: 0.62m),
+            PriceProfitAndLoss: -95000m, ConfirmedCostProfitAndLoss: -107800m, EstimatedNetProfitAndLoss: -116300m, CostToRRatio: 0.62m),
 
         new(
             Code: "4385", Name: "メルカリ", Side: PositionSide.Short, Quantity: 100,
@@ -244,7 +244,7 @@ public static class MockDataSet
             EvaluationBarDate: EvaluationBarDate,
             FixedAtr: 48m, AtrReferenceBarDate: new DateOnly(2026, 2, 20), AtrPeriod: 14, StopMultiplier: 2.5m,
             CurrentAtrReferenceOnly: 52m,
-            StopPrice: 2430m, TakeProfitPrice: 2130m,
+            EntryBasisPrice: 2310m, StopPrice: 2430m, TakeProfitPrice: 2130m, CurrentPrice: 2130m,
             PartialExitStatus: PartialExitStatus.NotApplicable, PartialExitQuantity: null, PartialExitEffectiveFraction: null,
             PartialExitNote: null,
             ReconciliationStatus: ReconciliationStatus.Clear,

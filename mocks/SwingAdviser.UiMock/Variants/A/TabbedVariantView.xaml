@@ -15,20 +15,20 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 上部タブ -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal">
-            <Button Margin="0,0,4,0" Command="{Binding SelectSectionCommand}" CommandParameter="Candidates" Content="候補" />
-            <Button Margin="0,0,4,0" Command="{Binding SelectSectionCommand}" CommandParameter="Positions" Content="保有" />
-            <Button Command="{Binding SelectSectionCommand}" CommandParameter="History" Content="履歴" />
-        </StackPanel>
-
-        <!-- グローバル更新/AI状態ストリップ -->
-        <Border Grid.Row="1"
-                Margin="0,8,0,8"
+        <!-- グローバル更新/AI状態ストリップ（固定表示のため上に配置） -->
+        <Border Grid.Row="0"
+                Margin="0,0,0,8"
                 Padding="8"
                 Background="{DynamicResource MahApps.Brushes.Gray9}">
             <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource DualProgressTemplate}" />
         </Border>
+
+        <!-- 上部タブ -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,8" Orientation="Horizontal">
+            <Button Margin="0,0,4,0" Command="{Binding SelectSectionCommand}" CommandParameter="Candidates" Content="候補" />
+            <Button Margin="0,0,4,0" Command="{Binding SelectSectionCommand}" CommandParameter="Positions" Content="保有" />
+            <Button Command="{Binding SelectSectionCommand}" CommandParameter="History" Content="履歴" />
+        </StackPanel>
 
         <!-- 候補セクション -->
         <Grid Grid.Row="2">
@@ -120,11 +120,12 @@
             </StackPanel>
         </Grid>
 
-        <!-- 保有セクション -->
-        <ScrollViewer Grid.Row="2"
-                      VerticalScrollBarVisibility="Auto">
-            <ScrollViewer.Style>
-                <Style TargetType="ScrollViewer">
+        <!-- 保有セクション: 候補と同じ「一覧+主な判定理由+操作」の構造に揃える。
+             Exit方向の判定（Hold/利確候補/損切候補/決済候補）はテクニカル分析側が算出し、
+             AIチェックは対象外（product-spec.md 日次更新フロー）のためAI状態列は持たない。 -->
+        <Grid Grid.Row="2">
+            <Grid.Style>
+                <Style TargetType="Grid">
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding State.SelectedSection}" Value="Positions">
@@ -132,9 +133,60 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
-            </ScrollViewer.Style>
-            <ContentControl Content="{Binding PositionList.Positions}" ContentTemplate="{StaticResource PositionListTemplate}" />
-        </ScrollViewer>
+            </Grid.Style>
+
+            <DataGrid x:Name="PositionsGrid"
+                      AutoGenerateColumns="False"
+                      FrozenColumnCount="3"
+                      IsReadOnly="True"
+                      ItemsSource="{Binding PositionList.Positions}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                    <DataGridTextColumn Width="140" Binding="{Binding Name}" Header="銘柄名" />
+                    <DataGridTextColumn Width="90" Binding="{Binding SideLabel}" Header="Long/Short" />
+                    <DataGridTemplateColumn Width="50" Header="種別">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="Exit" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Width="80" Binding="{Binding QuantityText}" Header="数量" />
+                    <DataGridTextColumn Width="100" Binding="{Binding EntryPriceText}" Header="エントリー時価格" />
+                    <DataGridTextColumn Width="100" Binding="{Binding CurrentPriceText}" Header="現在価格（参考）" />
+                    <DataGridTextColumn Width="100" Binding="{Binding PriceProfitAndLossText}" Header="価格損益" />
+                    <DataGridTextColumn Width="110" Binding="{Binding EvaluationBarDateText}" Header="判定基準バー日" />
+                    <DataGridTextColumn Width="140" Binding="{Binding AppliedStrategy}" Header="適用戦略" />
+                    <DataGridTemplateColumn Width="130" Header="決済判定">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:PositionRowViewModel}">
+                                <shared:SeverityBadge Severity="{Binding DecisionSeverity}" Text="{Binding DecisionLabel}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Width="220" Binding="{Binding DecisionReason}" Header="主な判定理由" />
+                    <DataGridTextColumn Width="100" Binding="{Binding StopPriceText}" Header="損切候補" />
+                    <DataGridTextColumn Width="100" Binding="{Binding TakeProfitPriceText}" Header="利確候補" />
+                    <DataGridTemplateColumn Width="150" Header="返済期限">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:PositionRowViewModel}">
+                                <shared:SeverityBadge Severity="{Binding DeadlineSeverity}" Text="{Binding DeadlineStateText}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Width="120" Binding="{Binding ReconciliationStatusLabel}" Header="要照合状態" />
+                    <DataGridTemplateColumn Width="160" Header="操作">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:PositionRowViewModel}">
+                                <Button Command="{Binding DataContext.PositionList.RequestManualEntryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Content="保有から登録" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
 
         <!-- 履歴セクション -->
         <ScrollViewer Grid.Row="2"
