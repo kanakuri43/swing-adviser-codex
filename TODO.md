@@ -107,6 +107,15 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
   - **実機確認（2026-08-26）**: 開発用DBで起動し、候補2件/保有1件/約定1件の初期表示、候補/保有/履歴タブ切替をUI Automationで確認。候補から登録を開いた時点で銘柄/方向だけが引き継がれ、約定日・時刻・価格・株数を含む編集欄7個が空であることを確認した。確認画面を経て7203 Longの新規建を登録し、候補2件/保有2件/約定2件へ再読込されたこと、空入力は検証エラーになりキャンセル後も件数不変であることを確認。画面から価格2800円→2810円の訂正理由付きrevisionを追記し、再起動後にrev1/¥2,800とrev2/¥2,810が履歴詳細へ復元されたことを確認した。履歴詳細展開時に発見した`Run.Text`のTwoWayバインド例外はOneWay固定へ修正済み。
 
 ## 4. 仮決定パラメータの検証・調整（実装後にバックテスト等で見直す前提）
+
+**前提（2026-08-26 レビューで判明。）**: 現状 `src/SwingAdviser.Domain/Analysis/*`（`CandidateResult`/`TechnicalAnalysisResult` 等）はエンティティ（入れ物）のみで、テクニカル指標計算・候補抽出・スコアリング・保有ポジションの損切利確判定・AIチェック実行のロジックは1行も実装されていない。セクション3で完成した「主要ユースケース」は候補/保有の参照・手動約定登録・訂正のみで、AGENT.md Application 節が挙げる「株価更新、全銘柄スキャン、候補抽出、保有再評価、AIチェック」本体は未着手。本章の検証・調整タスクはこれらの実装が前提のため、以下を先行実装タスクとして明記する（未実装のままでは「検証」を開始できない）。
+
+- [x] **テクニカル指標計算エンジンを実装する**（MACD/EMA20・50・200/ATR/出来高倍率。[`technical-analysis.md`](docs/technical-analysis.md) 準拠、Look-ahead bias 規則・point-in-time系列の遵守を含む）
+  - **実装結果（2026-08-26）**: Domain層に純粋計算エンジンと、InfrastructureのPIT選択・企業アクション調整境界だけが生成できる検証済み系列型を追加。EMA20/50/200（SMA seed）、MACD 12/26/9（signalもSMA seed）、Wilder ATR14、評価日前20本平均出来高・出来高倍率を`decimal`・中間丸めなしで算出し、当日/判定に必要な前日値、algorithm ID、正規化JSON、指標別入力hash、固定計算起点を返す。最低201本、manifestの価格revision ID/集合hash・企業アクション集合hash、件数・日付範囲・必要本数、日付順/重複、未来足、確定状態、履歴不完全、PIT未検証、企業アクション要照合をfail-closedで検証する。非線形golden値、上場来固定起点、再現性、decimal正規化、分割単位、ゼロ出来高、拒否境界を含む単体テスト21件を追加。
+- [ ] **候補抽出・スコアリングロジック（全銘柄スキャン）を実装する**（Long/Short非対称条件、0〜100スコア、信頼度ラベル。[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+- [ ] **保有ポジションの再評価（損切・利確・継続保有判定）ロジックを実装する**（ATR倍数・R倍率・部分決済・建値移動・テクニカル反転条件。[`risk-management.md`](docs/risk-management.md)）
+- [ ] **AIチェック（Codex CLI）実行連携を実装する**（`AiCheckJob`/`AiAttempt`/`AiResult` の生成・タイムアウト・並列数・失敗時フォールバック。[`ai-analysis.md`](docs/ai-analysis.md)）
+- [ ] **株価更新（差分更新）バッチのApplicationユースケースを実装する**（セクション5のHTTPクライアント実装後に接続。日次更新フローの起点）
 - [ ] **バックテスト基盤を構築する**（以下の検証タスクすべての前提。[`technical-analysis.md`](docs/technical-analysis.md) Look-ahead bias 節の規則をバックテストにも適用すること）
 - [ ] MACD パラメータ 12/26/9 の妥当性検証（[`technical-analysis.md`](docs/technical-analysis.md)）
 - [ ] EMA 20/50/200 のトレンド判定ロジックの妥当性検証
@@ -120,6 +129,10 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 - [ ] Codex CLI のデフォルト timeout（120秒）・並列数2・自動チェック上位件数3/方向の妥当性を実運用で検証
 
 ## 5. 外部データ取得の実装検証
+
+**前提（2026-08-26 レビューで判明。）**: 現状 Infrastructure に Yahoo Finance/JPX への HTTP クライアントは未実装。以下の「実地確認」項目は実装と同時並行、または実装直後に行う。
+
+- [ ] **Yahoo Finance 非公式 chart API のクライアントを実装する**（日足取得・差分更新・企業アクション取得。[`data-sources.md`](docs/data-sources.md)）
 - [ ] Yahoo Finance 非公式 chart API の安定性・レート制限の実地確認、失敗時のフォールバック設計
 - [ ] JPX 公式の上場銘柄一覧・信用取引銘柄一覧のファイル形式を確認し、パーサーを実装
 - [ ] Yahoo Finance 企業情報エンドポイントから取得できる項目（PER/PBR/時価総額等）の実際の可用性を確認

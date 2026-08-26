@@ -6,4 +6,4 @@
 - Read `mem:tech_stack` for runtime/framework/package pins.
 - Read `mem:suggested_commands` for Windows development and Serena commands; read `mem:task_completion` before declaring implementation work done.
 - Read `mem:conventions` for repository-wide implementation rules.
-- Layer responsibilities and dependency boundaries: `mem:domain/core`, `mem:application/core`, `mem:infrastructure/core`, `mem:presentation/core`; test strategy: `mem:tests/core`.
+- Layer responsibilities and dependency boundaries: `mem:domain/core`, `mem:application/core`, `mem:infrastructure/core`, `mem:presentation/core`; composition/runtime startup: `mem:desktop/core`; test strategy: `mem:tests/core`.

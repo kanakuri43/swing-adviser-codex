@@ -1,7 +1,6 @@
-using System.Buffers;
-using System.Security.Cryptography;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using SwingAdviser.Domain.Analysis;
+using SwingAdviser.Domain.Common;
 using SwingAdviser.Infrastructure.Persistence.Entities;
 
 namespace SwingAdviser.Infrastructure.Persistence.Repositories;
@@ -15,7 +14,7 @@ internal sealed record ReconstructedPriceRevisionSet(
 
 internal sealed class PriceRevisionSetRepository(SwingAdviserDbContext dbContext)
 {
-    public const string HashAlgorithmId = "price-revision-set-sha256-v1";
+    public const string HashAlgorithmId = AnalysisInputHashing.PriceRevisionSetHashAlgorithmId;
 
     public async Task<ReconstructedPriceRevisionSet> ReconstructAndVerifyAsync(
         Guid setId,
@@ -117,30 +116,12 @@ internal sealed class PriceRevisionSetRepository(SwingAdviserDbContext dbContext
     internal static string CalculateSetHash(
         Guid instrumentId,
         string provider,
-        IEnumerable<(DateOnly BarDate, string ContentSha256)> members)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("algorithm", HashAlgorithmId);
-            writer.WriteString("instrumentId", PersistenceValueFormats.FormatGuid(instrumentId));
-            writer.WriteString("provider", provider);
-            writer.WriteStartArray("members");
-            foreach (var member in members.OrderBy(item => item.BarDate))
-            {
-                writer.WriteStartObject();
-                writer.WriteString("barDate", PersistenceValueFormats.FormatMarketDate(member.BarDate));
-                writer.WriteString("contentSha256", member.ContentSha256);
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-        }
-
-        return Convert.ToHexString(SHA256.HashData(buffer.WrittenSpan)).ToLowerInvariant();
-    }
+        IEnumerable<(DateOnly BarDate, string ContentSha256)> members) =>
+        AnalysisInputHashing.CalculatePriceRevisionSetHash(
+            new InstrumentId(instrumentId),
+            provider,
+            members.Select(member => (member.BarDate, new Sha256Hash(member.ContentSha256))))
+        .Value;
 
     private async Task<List<PriceRevisionSetRow>> LoadParentChainAsync(
         Guid setId,
