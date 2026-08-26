@@ -100,6 +100,12 @@ public sealed class TechnicalIndicatorEngineTests
         Assert.Equal(TechnicalIndicatorEngine.MacdAlgorithmId, first.IndicatorResults.Single(item => item.Key == "MACD").AlgorithmId);
         Assert.Equal(TechnicalIndicatorEngine.AtrAlgorithmId, first.IndicatorResults.Single(item => item.Key == "ATR14").AlgorithmId);
         Assert.Equal(TechnicalIndicatorEngine.EngineVersion, ((ITechnicalIndicatorEngine)engine).Version);
+        var identity = Assert.IsType<TechnicalIndicatorCalculationIdentity>(first.Identity);
+        Assert.Equal(request.Manifest.AnalysisRunId, identity.AnalysisRunId);
+        Assert.Equal(request.Manifest.Id, identity.AnalysisInputManifestId);
+        Assert.Equal(request.Manifest.InstrumentId, identity.InstrumentId);
+        Assert.Equal(request.EvaluationBarDate, identity.EvaluationBarDate);
+        Assert.Equal(request.Manifest.ManifestHash, identity.ManifestHash);
 
         foreach (var indicator in first.IndicatorResults)
         {

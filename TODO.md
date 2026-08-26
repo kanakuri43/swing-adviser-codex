@@ -112,7 +112,8 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 
 - [x] **テクニカル指標計算エンジンを実装する**（MACD/EMA20・50・200/ATR/出来高倍率。[`technical-analysis.md`](docs/technical-analysis.md) 準拠、Look-ahead bias 規則・point-in-time系列の遵守を含む）
   - **実装結果（2026-08-26）**: Domain層に純粋計算エンジンと、InfrastructureのPIT選択・企業アクション調整境界だけが生成できる検証済み系列型を追加。EMA20/50/200（SMA seed）、MACD 12/26/9（signalもSMA seed）、Wilder ATR14、評価日前20本平均出来高・出来高倍率を`decimal`・中間丸めなしで算出し、当日/判定に必要な前日値、algorithm ID、正規化JSON、指標別入力hash、固定計算起点を返す。最低201本、manifestの価格revision ID/集合hash・企業アクション集合hash、件数・日付範囲・必要本数、日付順/重複、未来足、確定状態、履歴不完全、PIT未検証、企業アクション要照合をfail-closedで検証する。非線形golden値、上場来固定起点、再現性、decimal正規化、分割単位、ゼロ出来高、拒否境界を含む単体テスト21件を追加。
-- [ ] **候補抽出・スコアリングロジック（全銘柄スキャン）を実装する**（Long/Short非対称条件、0〜100スコア、信頼度ラベル。[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+- [x] **候補抽出・スコアリングロジック（全銘柄スキャン）を実装する**（Long/Short非対称条件、0〜100スコア、信頼度ラベル。[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+  - **実装結果（2026-08-26）**: Domain層に`candidate-scoring-engine-v1`と完全正規化可能な型付き戦略パラメータを追加。MACD方向状態、EMA strict stack、方向別出来高gateをfail-closedで判定し、LongはMACD/EMA、ShortはMACD/EMA/出来高をATR正規化した強度で0〜100へ加算、High/Medium/Lowへ分類する。価格水準・分割単位不変、最終1回丸め、component合計・weight・ordinal・JSONの整合を検証する。Application層に、設定化されたTSE国内普通株ユニバースを決定的順序で処理し、指標を銘柄ごとに1回だけ計算してLong/Shortを別評価する`AllInstrumentScanService`を追加。PIT request identity、run/engine version、parameter snapshot/hashを照合し、進捗・キャンセル・銘柄単位の失敗継続・方向別ランキング・run status集計を返す。Infrastructureが準備した検証済み系列と結果保存を接続できる境界であり、外部データ取得自体はセクション5の別タスクとする。
 - [ ] **保有ポジションの再評価（損切・利確・継続保有判定）ロジックを実装する**（ATR倍数・R倍率・部分決済・建値移動・テクニカル反転条件。[`risk-management.md`](docs/risk-management.md)）
 - [ ] **AIチェック（Codex CLI）実行連携を実装する**（`AiCheckJob`/`AiAttempt`/`AiResult` の生成・タイムアウト・並列数・失敗時フォールバック。[`ai-analysis.md`](docs/ai-analysis.md)）
 - [ ] **株価更新（差分更新）バッチのApplicationユースケースを実装する**（セクション5のHTTPクライアント実装後に接続。日次更新フローの起点）
@@ -121,7 +122,7 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 - [ ] EMA 20/50/200 のトレンド判定ロジックの妥当性検証
 - [ ] 出来高倍率フィルタの閾値（1.5倍、仮値）の調整
 - [ ] ATR 期間14日、損切倍率 Long 3.0/Short 2.5、50%利確 1.5R、部分決済後の建値移動の妥当性検証（[`risk-management.md`](docs/risk-management.md)）
-- [ ] 候補スコアの重み付け（未確定）を決定し、0〜100スコア・信頼度ラベルとの対応を詰める（[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+- [ ] 候補スコアの初期仮値（Long 50/50/0、Short 40/40/20、High >= 80、Medium >= 60）をバックテストで検証・調整する（[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
 - [ ] Long/Short 非対称条件（Short は全条件一致必須）の実データでの妥当性検証
 - [ ] 上場来の初期取得について、実行時間・保存容量・取得元の履歴完全性を検証（[`data-sources.md`](docs/data-sources.md)）
 - [ ] 日次分析結果について、想定全銘柄数 × Long/Short × 指標数で DB 本体・索引・WAL の行数/bytes per day と1年増分を実測し、バックアップ容量・保持方針を決める（`indicator_results.values_json` に時系列全体を保存しない前提）

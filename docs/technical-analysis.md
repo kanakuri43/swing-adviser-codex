@@ -49,14 +49,34 @@ EMA[i]   = alpha * Close[i] + (1 - alpha) * EMA[i-1]  (i >= N)
 指標エンジンは、Infrastructureのpoint-in-time選択・企業アクション調整境界だけが生成できる検証済み系列型を入力とし、manifestから再構築した日付ごとの価格revision ID、価格revision集合hash、企業アクション集合hash、manifest hashを保持する。評価日を末尾とする日付昇順・重複なしの確定済みまたは訂正済み日足だけを受け付け、manifestと件数・先頭日・末尾日・最低必要本数が一致しない系列、評価日より後の足、暫定足・無効足は `InvalidData` として計算しない。`HistoryIncomplete`、`PointInTimeUnverified`、企業アクションの `ReconciliationRequired` も成功値へフォールバックしない。
 
 Long/Short 判定条件(仮決定、非対称):
-- Long Entry: MACD シグナルと EMA トレンドが一致すれば候補とする。出来高倍率は候補の足切り用フィルタとしてのみ使用(スコア構成要素にはしない)。
-- Short Entry: MACD + EMA + 出来高倍率の全条件一致を必須とする。信用売りは踏み上げ等のリスクが Long と非対称なため、最初から保守的な条件にする。
+- Long Entry: 当日 MACD line > signal、EMA20 > EMA50 > EMA200、出来高倍率が方向別の最低値以上なら候補とする。出来高倍率は候補の足切り用フィルタとしてのみ使用し、Longのスコア構成要素にはしない。
+- Short Entry: 当日 MACD line < signal、EMA20 < EMA50 < EMA200、出来高倍率が方向別の最低値以上の全条件一致を必須とする。信用売りは踏み上げ等のリスクが Long と非対称なため、出来高確認もスコア構成要素として保持する。
+
+初期実装 `candidate-scoring-engine-v1` はMACDの「一致」を当日のline/signal位置関係、EMAトレンドを3本のstrict stackとして判定する。等値は一致に含めない。当日クロスだけには限定せず、前日が不一致なら`Fresh`、前日から一致なら`Continuation`として理由を区別する。出来高倍率の初期最低値はLong/Shortとも1.5（境界を含む）だが方向別パラメータとし、`ReferenceAverageZero`等で倍率を評価できない場合は`InvalidData`としてスコアリングしない。
 
 ## Candidate score calculation
-候補スコア算出方法(仮決定): 各指標(MACD/EMA/出来高等)の一致度・強度を重み付けして合計する加算方式。0〜100の数値スコアと、高/中/低の信頼度ラベルの両方を保持・表示する。重み自体は戦略パラメータとして外部化し、Long/Short の非対称条件(Short は全条件一致が前提)と矛盾しないよう、Short 側は一致必須条件を満たした候補のみスコアリング対象とする。具体的な重み値は未確定で、今後の検証で調整する。
+候補スコア算出方法(仮決定): 各指標の一致度・強度を重み付けして合計する加算方式。0〜100の数値スコアと、高/中/低の信頼度ラベルの両方を保持・表示する。重み・閾値は戦略パラメータへ外部化し、完全な正規化JSON/hashとして凍結する。必須条件をすべて満たした候補だけをスコアリング対象とする。
+
+`candidate-scoring-engine-v1` の初期仮値と計算契約:
+
+- Long: MACD 50、EMA 50、出来高 0。Short: MACD 40、EMA 40、出来高 20。方向ごとの合計は必ず100とする。
+- MACDの方向gapはLong=`line-signal`、Short=`signal-line`。EMAの方向gapは、Longでは`min(EMA20-EMA50, EMA50-EMA200)`、Shortでは`min(EMA50-EMA20, EMA200-EMA50)`。
+- 価格水準や分割単位に依存しないよう、MACD/EMA強度は`gap / (gap + ATR14 * atrNormalizationScale)`（初期scale=1）で0〜1へ正規化する。ATR=0かつgap>0は強度1とする。
+- 条件一致時の得点係数は`matchedBaseFraction + (1-matchedBaseFraction) * strength`（初期base=0.5）。これにより弱い一致も条件通過として扱いつつ、強度で順位差を付ける。
+- Shortの出来高強度は、最低倍率1.5を0、full-strength倍率2.0を1として線形正規化し、同じ得点係数を適用する。Longの出来高componentは監査用にweight/awardedとも0で保持する。
+- component得点は中間丸めせず、合計を最後に1回だけ`MidpointRounding.AwayFromZero`で整数化し、0〜100へ制限する。信頼度はHigh >= 80、Medium >= 60、Low < 60とする（境界を含む）。
+- score componentのraw JSONには固定schema version、方向、当日/前日の生値、directional gap、ATR、正規化強度、閾値、使用indicatorのinput hashを決定的な順序で保存する。
+
+これらの数値はバックテスト前の仮値であり、変更時はparameter snapshotとcandidate engine versionを更新する。全期間min/maxや当日ユニバース内percentileによる正規化は、未来データ混入・母集団依存を避けるため使用しない。
 スコアを勝率・利益保証として表現しない。
 
 履歴不足またはデータ不正で必須指標を計算できない銘柄はスコアリングしない。必須指標を除いて100点へ再配分してはならない。
+
+## All-instrument scan contract
+
+初期ユニバースは設定化した`TSE`・`DomesticCommonStock`・`Listed`・`ScanEligibility.Eligible`の積集合とする。`Unknown`を適格と推測せず、評価日に有効で分析時点に利用可能かつrecorded cutoff以前の銘柄マスタrevisionだけを使用する。Shortのテクニカル候補と実際の売建可否・規制状態は別情報とし、売建可否を候補engineへ混入させない。
+
+Applicationの全銘柄スキャンは、評価時点で有効かつ利用可能だった銘柄コードrevisionをinstrument masterへ結び付け、銘柄コード昇順の決定的な順序で各銘柄の検証済みpoint-in-time requestから指標を1回計算し、その同一結果をLong/Shortへ各1回評価する。1銘柄の予期しない失敗で後続を停止せず、進捗・候補件数・失敗件数と`Succeeded`/`PartiallySucceeded`/`Failed`の集計を返す。indicator resultはrun/manifest/instrument/evaluation date/manifest hashのidentityを保持し、入力bundleとの不一致をfail-closedとする。runとengine version・parameter snapshotの不一致も同様に拒否する。parameter snapshotの正規化JSONとhashにはstrategy key/version、candidate algorithm version、型付きパラメータ本体を含める。候補順位は方向別にscore降順、同点は銘柄コード昇順とする。
 
 ## Evaluation time
 `EvaluationBarDate` は分析に使った最新の確定済み日足、`AnalyzedAt` は実際に分析を実行したJST日時とし、分離して保存する。分析には `EvaluationBarDate` 以前かつ `AnalyzedAt` 時点で利用可能なデータだけを使う。15:30経過だけで日足確定とみなさない。当日の候補は原則として次の取引セッションに向けた判断支援情報である。

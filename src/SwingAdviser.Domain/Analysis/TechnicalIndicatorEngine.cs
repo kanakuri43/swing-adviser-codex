@@ -255,6 +255,53 @@ public sealed record TechnicalIndicatorSnapshot
     public VolumeSnapshot Volume { get; }
 }
 
+public sealed record TechnicalIndicatorCalculationIdentity
+{
+    public TechnicalIndicatorCalculationIdentity(
+        AnalysisRunId analysisRunId,
+        Guid analysisInputManifestId,
+        InstrumentId instrumentId,
+        DateOnly evaluationBarDate,
+        Sha256Hash manifestHash)
+    {
+        if (analysisRunId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Analysis run ID cannot be empty.", nameof(analysisRunId));
+        }
+
+        if (analysisInputManifestId == Guid.Empty)
+        {
+            throw new ArgumentException("Analysis input manifest ID cannot be empty.", nameof(analysisInputManifestId));
+        }
+
+        if (instrumentId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Instrument ID cannot be empty.", nameof(instrumentId));
+        }
+
+        AnalysisRunId = analysisRunId;
+        AnalysisInputManifestId = analysisInputManifestId;
+        InstrumentId = instrumentId;
+        EvaluationBarDate = evaluationBarDate;
+        ManifestHash = manifestHash;
+    }
+
+    public AnalysisRunId AnalysisRunId { get; }
+    public Guid AnalysisInputManifestId { get; }
+    public InstrumentId InstrumentId { get; }
+    public DateOnly EvaluationBarDate { get; }
+    public Sha256Hash ManifestHash { get; }
+
+    internal static TechnicalIndicatorCalculationIdentity From(
+        TechnicalIndicatorCalculationRequest request) =>
+        new(
+            request.Manifest.AnalysisRunId,
+            request.Manifest.Id,
+            request.Manifest.InstrumentId,
+            request.EvaluationBarDate,
+            request.Manifest.ManifestHash);
+}
+
 public sealed record TechnicalIndicatorCalculationResult
 {
     private TechnicalIndicatorCalculationResult(
@@ -264,7 +311,8 @@ public sealed record TechnicalIndicatorCalculationResult
         int requiredBarCount,
         DateOnly? calculationStartBarDate,
         TechnicalIndicatorSnapshot? snapshot,
-        IReadOnlyList<IndicatorResult> indicatorResults)
+        IReadOnlyList<IndicatorResult> indicatorResults,
+        TechnicalIndicatorCalculationIdentity identity)
     {
         Status = status;
         Reason = reason;
@@ -273,6 +321,7 @@ public sealed record TechnicalIndicatorCalculationResult
         CalculationStartBarDate = calculationStartBarDate;
         Snapshot = snapshot;
         IndicatorResults = Array.AsReadOnly(indicatorResults.ToArray());
+        Identity = identity ?? throw new ArgumentNullException(nameof(identity));
     }
 
     public TechnicalIndicatorCalculationStatus Status { get; }
@@ -282,6 +331,7 @@ public sealed record TechnicalIndicatorCalculationResult
     public DateOnly? CalculationStartBarDate { get; }
     public TechnicalIndicatorSnapshot? Snapshot { get; }
     public IReadOnlyList<IndicatorResult> IndicatorResults { get; }
+    public TechnicalIndicatorCalculationIdentity Identity { get; }
     public bool IsSuccess => Status == TechnicalIndicatorCalculationStatus.Succeeded;
 
     internal static TechnicalIndicatorCalculationResult Failed(
@@ -289,15 +339,17 @@ public sealed record TechnicalIndicatorCalculationResult
         string reason,
         int actualBarCount,
         int requiredBarCount,
-        DateOnly? calculationStartBarDate = null) =>
-        new(status, reason, actualBarCount, requiredBarCount, calculationStartBarDate, null, []);
+        DateOnly? calculationStartBarDate,
+        TechnicalIndicatorCalculationIdentity identity) =>
+        new(status, reason, actualBarCount, requiredBarCount, calculationStartBarDate, null, [], identity);
 
     internal static TechnicalIndicatorCalculationResult Succeeded(
         int actualBarCount,
         int requiredBarCount,
         DateOnly calculationStartBarDate,
         TechnicalIndicatorSnapshot snapshot,
-        IReadOnlyList<IndicatorResult> indicatorResults) =>
+        IReadOnlyList<IndicatorResult> indicatorResults,
+        TechnicalIndicatorCalculationIdentity identity) =>
         new(
             TechnicalIndicatorCalculationStatus.Succeeded,
             "All required technical indicators were calculated.",
@@ -305,7 +357,8 @@ public sealed record TechnicalIndicatorCalculationResult
             requiredBarCount,
             calculationStartBarDate,
             snapshot,
-            indicatorResults);
+            indicatorResults,
+            identity);
 }
 
 public interface ITechnicalIndicatorEngine
@@ -377,6 +430,7 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(parameters);
 
+        var identity = TechnicalIndicatorCalculationIdentity.From(request);
         var bars = request.Bars;
         var requiredBarCount = parameters.RequiredBarCount;
         var startDate = bars.Count == 0 ? (DateOnly?)null : bars[0].BarDate;
@@ -388,7 +442,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 invalidReason,
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (request.AdjustedSeriesStatus == AdjustedPriceSeriesStatus.ReconciliationRequired)
@@ -398,7 +453,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 "The adjusted price series contains a corporate action that requires reconciliation.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (request.Manifest.PointInTimeStatus != PointInTimeStatus.Verified)
@@ -408,7 +464,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 "The input manifest is not point-in-time verified.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (request.Manifest.HistoryStatus == HistoryStatus.HistoryIncomplete)
@@ -418,7 +475,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 "The listing-to-evaluation price history is not known to be complete.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (request.Manifest.HistoryStatus == HistoryStatus.Invalid)
@@ -428,7 +486,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 "The input manifest marks the price history as invalid.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (request.Manifest.HistoryStatus == HistoryStatus.InsufficientHistory || bars.Count < requiredBarCount)
@@ -438,7 +497,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 $"Insufficient history: {bars.Count} available bars; {requiredBarCount} required.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         if (bars.Any(bar => bar.SourceStatus is not (BarStatus.Confirmed or BarStatus.Corrected)))
@@ -448,7 +508,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
                 "Only confirmed or corrected daily bars may be used for technical indicators.",
                 bars.Count,
                 requiredBarCount,
-                startDate);
+                startDate,
+                identity);
         }
 
         var closes = bars.Select(bar => bar.Close).ToArray();
@@ -488,7 +549,8 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
             requiredBarCount,
             bars[0].BarDate,
             snapshot,
-            results);
+            results,
+            identity);
     }
 
     private static string? ValidateInputIdentity(
@@ -929,13 +991,10 @@ public sealed class TechnicalIndicatorEngine : ITechnicalIndicatorEngine
     }
 
     private static void WriteDecimal(Utf8JsonWriter writer, string propertyName, decimal value) =>
-        writer.WriteString(propertyName, CanonicalDecimal(value));
+        AnalysisCanonicalJson.WriteDecimal(writer, propertyName, value);
 
-    private static string CanonicalDecimal(decimal value)
-    {
-        var normalized = value == decimal.Zero ? decimal.Zero : value;
-        return normalized.ToString("0.############################", CultureInfo.InvariantCulture);
-    }
+    private static string CanonicalDecimal(decimal value) =>
+        AnalysisCanonicalJson.FormatDecimal(value);
 
     private static string FormatDate(DateOnly value) =>
         AnalysisInputHashing.FormatDate(value);

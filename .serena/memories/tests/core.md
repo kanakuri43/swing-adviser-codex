@@ -3,4 +3,5 @@
 - Architecture contract tests enforce project-reference direction: Domain -> none, Application -> Domain, Infrastructure -> Application+Domain, Presentation -> Application, Desktop -> Infrastructure+Presentation; inner layers and Presentation also have forbidden technical dependency checks.
 - Persistence tests use SQLite in-memory with an explicitly opened connection and apply real EF migrations.
 - High-priority coverage: indicator/signal/risk boundaries; Long/Short and Entry/Exit; date/future-data boundaries; splits/corporate-action revisions; MarginLot deadlines/cost states; partial-exit allocation; no automatic trade history; AI fallback; repositories/migrations.
+- Candidate tests lock strict MACD/EMA equality boundaries, inclusive volume thresholds, failure-status propagation, score/component invariants, confidence boundaries, split invariance, deterministic JSON, universe filtering, identity/snapshot checks, ranking, cancellation, and per-instrument failure continuation.
 - Financial expected values must come from independent fixtures, known datasets, or hand calculations, not duplicated production algorithms.
