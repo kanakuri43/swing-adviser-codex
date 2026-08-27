@@ -375,12 +375,16 @@ public sealed record RiskPlanRevision
             throw new ArgumentException("A risk plan revision requires a content hash.", nameof(audit));
         }
 
-        if (reason == RiskPlanReason.Initial &&
-            (audit.RevisionNumber != 1 || audit.SupersedesId is not null ||
-             triggerTradeExecutionId is not null || triggerLotAllocationRevisionId is not null ||
+        if ((audit.RevisionNumber == 1) != (reason == RiskPlanReason.Initial))
+        {
+            throw new DomainException("Revision 1 must be the initial plan, and later revisions cannot be initial.");
+        }
+
+        if (reason is RiskPlanReason.Initial or RiskPlanReason.UserCorrection &&
+            (triggerTradeExecutionId is not null || triggerLotAllocationRevisionId is not null ||
              triggerPositionAdjustmentId is not null))
         {
-            throw new DomainException("An initial risk plan must be revision 1 without predecessor or trigger evidence.");
+            throw new DomainException("Initial and user-correction plans cannot carry trigger evidence.");
         }
 
         if (reason == RiskPlanReason.PartialExitBreakeven &&

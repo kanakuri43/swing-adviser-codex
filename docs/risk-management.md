@@ -44,6 +44,8 @@ Non-negotiable rules・優先順位は AGENT.md 側が正であり、本ファ�
 
 当日値の等値は反転成立に含めない。MACD は前日が等値で当日が反対側へ strict に移動した場合は成立する。EMA20 は一度きりの cross event ではなく当日の終値状態として評価し、反対側にある間は成立を維持する。MACD と EMA20 は OR 条件なので、どちらか一方が成立すれば反転成立、両方が評価可能で不成立の場合だけ反転不成立とする。一方が不成立でも他方が欠損なら `Indeterminate` であり、`Hold` へフォールバックしない。
 
+4.1.5ではこの3値ORをDomainの`LotHoldingRiskEvaluator`へ実装する。MACD crossとEMA20状態はそれぞれ`Matched`/`NotMatched`/`Missing`の型付き理由を持ち、一方が`Matched`なら総合反転は`Matched`、両方`NotMatched`の場合だけ`NotMatched`、それ以外は`Indeterminate`とする。過去の1.5R状態も生booleanでは渡さず、`NotReached`、exact daily-price/risk-plan revision証跡を持つ`Reached`、または`Indeterminate`として渡す。当日target到達は4.1.4のHigh/Low比較結果から得る。stop未到達でtarget到達済みかつ総合反転`Matched`ならlotの`Exit`、`NotMatched`なら`TakeProfit`、`Indeterminate`ならdecision nullとする。stop到達はtarget/反転状態が不明でも`StopLoss`を確定できる。結果は`MarginLotId`とrisk basis/plan証跡に閉じ、instrument単位の`TechnicalAnalysisResult`は生成しない。
+
 #### Per-lot decision table and same-bar priority
 
 `partial exit confirmed` は、利用者確認済みの有効な部分決済約定と、その lot への有効な明示 allocation revision がある状態を指す。価格到達だけでは成立しない。
@@ -56,6 +58,8 @@ Non-negotiable rules・優先順位は AGENT.md 側が正であり、本ファ�
 | 4 | 当日 stop 未到達、上記以外、必要入力がすべて評価可能 | `Hold` | `NotApplicable` |
 
 この順序により、同一足で stop と target の双方へ到達した場合は `StopLoss`、stop と反転が競合した場合も `StopLoss`、target と終値反転が競合した場合は過去の到達有無にかかわらず `Exit` とする。代表判定にかかわらず成立した全条件を保存し、target にも到達した足は lot の過去1.5R到達証跡へ含める。これは日足から不明な stop/target の先着順を利益側へ推測しないための判定表示上の優先順位であり、約定価格や実際の約定順序を表さない。
+
+4.1.4の価格ライン判定はDomainの`LotRiskEvaluator`へ実装する。callerは評価セッション開始時刻をcutoffとして渡し、evaluatorは`effective_at_utc`と`recorded_at_utc`がともにcutoff以前のrevisionだけから、欠落・分岐のないrisk-plan chainの単一leafを選ぶ。結果は代表`ExitDecision`に加えてstop/target双方について、line種別、比較対象High/Low、比較演算子、観測価格、ライン価格、到達有無を型付き理由として返す。これにより`StopLoss`優先時も同一足のtarget到達証拠を失わない。テクニカル反転、部分利確数量、position集約は後続タスクでこのlot結果へ追加する。
 
 一部利確候補数量は lot ごとに `floor(lot現在数量 * partialTakeProfitFraction / 売買単位) * 売買単位` で求め、決済後に同じ lot へ最低 1 売買単位が残る場合だけ `Candidate` とする。同じ position の別 lot へ数量を暗黙配分しない。既に partial exit confirmed の lot には同じ risk-basis chain の一部利確候補を繰り返し生成しない。
 
