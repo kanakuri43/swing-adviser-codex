@@ -153,6 +153,8 @@ internal sealed class RiskBasisSnapshotRow
     public Guid? OriginCandidateResultId { get; set; }
     public Guid? StrategyParameterSnapshotId { get; set; }
     public Guid? AnalysisInputManifestId { get; set; }
+    public string? PriceCurrency { get; set; }
+    public string? PriceUnitBasisSha256 { get; set; }
     public decimal EntryBasisPrice { get; set; }
     public DateOnly AtrReferenceBarDate { get; set; }
     public decimal FixedAtr { get; set; }

@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using SwingAdviser.Application.TradingWorkspace;
+using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.Common;
 using SwingAdviser.Infrastructure.Persistence;
 using SwingAdviser.Infrastructure.Persistence.Entities;
@@ -10,6 +11,91 @@ namespace SwingAdviser.Infrastructure.Tests.TradingWorkspace;
 
 public sealed class SqliteTradingWorkspaceRepositoryTests
 {
+    [Fact]
+    public async Task Opening_AppendsFrozenRiskBasisAndInitialPlanInTheSameRegistration()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+
+        var opening = await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, fixture.LongCandidateId, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 1000m, 100, "JPY", Utc(2), true, []));
+
+        await using var context = new SwingAdviserDbContext(fixture.Options);
+        var lot = Assert.Single(await context.Set<MarginLotRow>().ToListAsync());
+        var basis = Assert.Single(await context.Set<RiskBasisSnapshotRow>().ToListAsync());
+        var plan = Assert.Single(await context.Set<RiskPlanRevisionRow>().ToListAsync());
+        Assert.Equal(lot.Id, basis.MarginLotId);
+        Assert.Equal(opening.RevisionId, basis.OpeningTradeExecutionRevisionId);
+        Assert.Equal(fixture.LongCandidateId, basis.OriginCandidateResultId);
+        Assert.Equal(fixture.StrategySnapshotId, basis.StrategyParameterSnapshotId);
+        Assert.Equal(fixture.ManifestId, basis.AnalysisInputManifestId);
+        Assert.Equal("JPY", basis.PriceCurrency);
+        Assert.Matches("^[0-9a-f]{64}$", basis.PriceUnitBasisSha256!);
+        Assert.Equal(new DateOnly(2026, 8, 25), basis.AtrReferenceBarDate);
+        Assert.Equal(20m, basis.FixedAtr);
+        Assert.Equal(14, basis.AtrPeriod);
+        Assert.Equal(TechnicalIndicatorEngine.AtrAlgorithmId, basis.AtrAlgorithmId);
+        Assert.Equal(940m, basis.InitialStopPrice);
+        Assert.Equal(1090m, basis.InitialTakeProfitPrice);
+        Assert.Equal(basis.Id, plan.RiskBasisSnapshotId);
+        Assert.Equal(RiskPlanReason.Initial.ToString(), plan.PlanReason);
+        Assert.Equal(basis.InitialStopPrice, plan.StopPrice);
+        Assert.Equal(basis.InitialTakeProfitPrice, plan.TakeProfitPrice);
+    }
+
+    [Fact]
+    public async Task ManualOpening_IgnoresAnalysisRecordedAfterExecution()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddAtrAnalysisAsync(new DateOnly(2026, 8, 26), Utc(3), 999m, PositionSide.Long);
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+
+        await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 4000m, 100, "JPY", Utc(2), true, []));
+
+        await using var context = new SwingAdviserDbContext(fixture.Options);
+        var basis = Assert.Single(await context.Set<RiskBasisSnapshotRow>().ToListAsync());
+        Assert.Equal(20m, basis.FixedAtr);
+        Assert.Equal(new DateOnly(2026, 8, 25), basis.AtrReferenceBarDate);
+    }
+
+    [Fact]
+    public async Task InvalidRiskLine_RollsBackTheWholeOpeningGraph()
+    {
+        await using var fixture = await Fixture.CreateAsync(seedAnalysis: false);
+        await fixture.AddAtrAnalysisAsync(new DateOnly(2026, 8, 25), Utc(0), 500m, PositionSide.Long);
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+
+        await Assert.ThrowsAsync<DomainException>(() => service.RegisterManualExecutionAsync(
+            new RegisterManualExecutionRequest(
+                fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+                Utc(1), 1000m, 100, "JPY", Utc(2), true, [])));
+
+        await using var context = new SwingAdviserDbContext(fixture.Options);
+        Assert.Empty(await context.Set<PositionRow>().ToListAsync());
+        Assert.Empty(await context.Set<TradeExecutionRow>().ToListAsync());
+        Assert.Empty(await context.Set<MarginLotRow>().ToListAsync());
+        Assert.Empty(await context.Set<RiskBasisSnapshotRow>().ToListAsync());
+        Assert.Empty(await context.Set<RiskPlanRevisionRow>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task OpeningWithoutEligibleAtr_IsRejectedWithoutSavingAPosition()
+    {
+        await using var fixture = await Fixture.CreateAsync(seedAnalysis: false);
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RegisterManualExecutionAsync(
+            new RegisterManualExecutionRequest(
+                fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+                Utc(1), 1000m, 100, "JPY", Utc(2), true, [])));
+
+        await using var context = new SwingAdviserDbContext(fixture.Options);
+        Assert.Empty(await context.Set<PositionRow>().ToListAsync());
+    }
+
     [Fact]
     public async Task OpenExecution_IsSavedOnlyThroughManualUseCase_AndCanBeCorrectedAsRevision()
     {
@@ -218,18 +304,30 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        private Fixture(SqliteConnection connection, DbContextOptions<SwingAdviserDbContext> options, Guid instrumentId)
+        private Fixture(
+            SqliteConnection connection,
+            DbContextOptions<SwingAdviserDbContext> options,
+            Guid instrumentId,
+            Guid strategySnapshotId,
+            Guid manifestId,
+            Guid longCandidateId)
         {
             Connection = connection;
             Options = options;
             InstrumentId = instrumentId;
+            StrategySnapshotId = strategySnapshotId;
+            ManifestId = manifestId;
+            LongCandidateId = longCandidateId;
         }
 
         private SqliteConnection Connection { get; }
         public DbContextOptions<SwingAdviserDbContext> Options { get; }
         public Guid InstrumentId { get; }
+        public Guid StrategySnapshotId { get; }
+        public Guid ManifestId { get; }
+        public Guid LongCandidateId { get; }
 
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(bool seedAnalysis = true)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -287,7 +385,146 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
                 ChangeKind = "EffectiveSnapshot",
             });
             await context.SaveChangesAsync();
-            return new Fixture(connection, options, instrumentId);
+
+            Guid strategyId = Guid.Empty;
+            Guid manifestId = Guid.Empty;
+            Guid candidateId = Guid.Empty;
+            if (seedAnalysis)
+            {
+                (strategyId, manifestId, candidateId) = await AddAtrAnalysisAsync(
+                    context,
+                    instrumentId,
+                    new DateOnly(2026, 8, 25),
+                    now,
+                    20m,
+                    PositionSide.Long,
+                    includeCandidate: true);
+                await AddAtrAnalysisAsync(
+                    context,
+                    instrumentId,
+                    new DateOnly(2026, 8, 25),
+                    now,
+                    20m,
+                    PositionSide.Short,
+                    includeCandidate: false);
+            }
+
+            return new Fixture(connection, options, instrumentId, strategyId, manifestId, candidateId);
+        }
+
+        public async Task AddAtrAnalysisAsync(
+            DateOnly evaluationDate,
+            DateTimeOffset analyzedAtUtc,
+            decimal atr,
+            PositionSide side)
+        {
+            await using var context = new SwingAdviserDbContext(Options);
+            await AddAtrAnalysisAsync(context, InstrumentId, evaluationDate, analyzedAtUtc, atr, side, false);
+        }
+
+        private static async Task<(Guid StrategyId, Guid ManifestId, Guid CandidateId)> AddAtrAnalysisAsync(
+            SwingAdviserDbContext context,
+            Guid instrumentId,
+            DateOnly evaluationDate,
+            DateTimeOffset analyzedAtUtc,
+            decimal atr,
+            PositionSide side,
+            bool includeCandidate)
+        {
+            var strategyId = Guid.NewGuid();
+            var calendarId = Guid.NewGuid();
+            var runId = Guid.NewGuid();
+            var priceId = Guid.NewGuid();
+            var priceRevisionId = Guid.NewGuid();
+            var priceSetId = Guid.NewGuid();
+            var manifestId = Guid.NewGuid();
+            var technicalId = Guid.NewGuid();
+            var candidateId = includeCandidate ? Guid.NewGuid() : Guid.Empty;
+            var provider = $"Test-{runId:N}";
+            var graphHash = runId.ToString("N") + runId.ToString("N");
+            context.Add(new StrategyParameterSnapshotRow
+            {
+                Id = strategyId, StrategyKey = "Test", StrategyVersion = "1", SchemaVersion = "1",
+                AlgorithmVersion = "test", ParametersJson = "{}", ParametersSha256 = graphHash,
+                CapturedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new MarketCalendarVersionRow
+            {
+                Id = calendarId, MarketCode = "TSE", Provider = provider, VersionName = Guid.NewGuid().ToString("N"),
+                TimeZoneId = "Tokyo Standard Time", AlgorithmVersion = "test", ContentSha256 = graphHash,
+                RecordedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new AnalysisRunRow
+            {
+                Id = runId, EvaluationBarDate = evaluationDate, AnalyzedAtUtc = analyzedAtUtc,
+                RecordedCutoffAtUtc = analyzedAtUtc, RunMode = AnalysisRunMode.Manual.ToString(),
+                Status = AnalysisRunStatus.Succeeded.ToString(), StrategyParameterSnapshotId = strategyId,
+                PointInTimeStatus = PointInTimeStatus.Verified.ToString(), PriceSelectorVersion = "test",
+                AdjustmentEngineVersion = "test", IndicatorEngineVersion = "test", CandidateEngineVersion = "test",
+                MarketCalendarVersionId = calendarId, ApplicationVersion = "test", StartedAtUtc = analyzedAtUtc,
+                CompletedAtUtc = analyzedAtUtc, TotalCount = 1, SuccessCount = 1, FailureCount = 0,
+            });
+            context.Add(new DailyPriceRow
+            {
+                Id = priceId, InstrumentId = instrumentId, BarDate = evaluationDate, Provider = provider,
+                CreatedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new DailyPriceRevisionRow
+            {
+                Id = priceRevisionId, RevisionNo = 1, ContentSha256 = graphHash,
+                AvailableAtUtc = analyzedAtUtc, AvailabilityStatus = "Known", FirstObservedAtUtc = analyzedAtUtc,
+                RecordedAtUtc = analyzedAtUtc, DailyPriceId = priceId, ProviderSymbol = "7203.T",
+                Open = 1000m, High = 1010m, Low = 990m, Close = 1000m, Volume = 1000,
+                Currency = "JPY", BarStatus = BarStatus.Confirmed.ToString(),
+            });
+            context.Add(new PriceRevisionSetRow
+            {
+                Id = priceSetId, InstrumentId = instrumentId, Provider = provider, FirstBarDate = evaluationDate,
+                LastBarDate = evaluationDate, BarCount = 1, SetSha256 = graphHash, SelectorVersion = "test",
+                SelectedAvailableCutoffAtUtc = analyzedAtUtc, SelectedRecordedCutoffAtUtc = analyzedAtUtc,
+                PointInTimeStatus = PointInTimeStatus.Verified.ToString(), CreatedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new PriceRevisionSetChangeRow
+            {
+                Id = Guid.NewGuid(), PriceRevisionSetId = priceSetId, Operation = "Add",
+                DailyPriceRevisionId = priceRevisionId, BarDate = evaluationDate, Ordinal = 0,
+            });
+            context.Add(new AnalysisInputManifestRow
+            {
+                Id = manifestId, AnalysisRunId = runId, InstrumentId = instrumentId, PriceProvider = provider,
+                PriceRevisionSetId = priceSetId, FirstBarDate = evaluationDate, LastBarDate = evaluationDate,
+                BarCount = 1, RequiredBarCount = 1, HistoryStatus = HistoryStatus.Complete.ToString(),
+                PointInTimeStatus = PointInTimeStatus.Verified.ToString(), SelectionBasis = "ObservedAt",
+                SelectionRuleVersion = "test", SelectedRecordedCutoffAtUtc = analyzedAtUtc,
+                SelectedAvailableCutoffAtUtc = analyzedAtUtc, PriceRevisionSetSha256 = graphHash,
+                CorporateActionSetSha256 = graphHash, ManifestSha256 = graphHash,
+                CreatedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new TechnicalAnalysisResultRow
+            {
+                Id = technicalId, AnalysisRunId = runId, AnalysisInputManifestId = manifestId,
+                InstrumentId = instrumentId, PositionSide = side.ToString(), SignalPurpose = SignalPurpose.Entry.ToString(),
+                Outcome = TechnicalAnalysisOutcome.Candidate.ToString(), ReasonSummary = "test", ReasonsJson = "[]",
+                CalculationStartBarDate = evaluationDate, CreatedAtUtc = analyzedAtUtc,
+            });
+            context.Add(new IndicatorResultRow
+            {
+                Id = Guid.NewGuid(), TechnicalAnalysisResultId = technicalId, IndicatorKey = "ATR14",
+                AlgorithmId = TechnicalIndicatorEngine.AtrAlgorithmId, ParametersJson = "{\"period\":14}",
+                ValuesJson = $"{{\"schemaVersion\":\"1\",\"value\":{{\"evaluationBarDate\":\"{evaluationDate:yyyy-MM-dd}\",\"current\":{atr}}}}}",
+                CalculationStartBarDate = evaluationDate, InputSha256 = graphHash, Ordinal = 0,
+            });
+            if (includeCandidate)
+            {
+                context.Add(new CandidateResultRow
+                {
+                    Id = candidateId, TechnicalAnalysisResultId = technicalId, Score = 80,
+                    Confidence = ConfidenceLevel.High.ToString(), PrimaryReason = "test", CreatedAtUtc = analyzedAtUtc,
+                });
+            }
+
+            await context.SaveChangesAsync();
+            return (strategyId, manifestId, candidateId);
         }
 
         public async ValueTask DisposeAsync() => await Connection.DisposeAsync();

@@ -859,6 +859,8 @@ Risk bases are lot-specific so multiple entries are not silently averaged. They 
 | `origin_candidate_result_id` | TEXT NULL FK | Candidate-linked basis. |
 | `strategy_parameter_snapshot_id` | TEXT NULL FK | Frozen strategy/risk parameters. |
 | `analysis_input_manifest_id` | TEXT NULL FK | Exact ATR input where available. |
+| `price_currency` | TEXT NULL | Currency shared by entry price, fixed ATR, and initial lines. Required for all post-4.1.3 writes; NULL is retained only for unreconciled legacy rows. |
+| `price_unit_basis_sha256` | TEXT NULL | Versioned instrument/currency/split-consolidation unit identity shared by entry price and ATR. Required for all post-4.1.3 writes; NULL is retained only for unreconciled legacy rows. |
 | `entry_basis_price` | TEXT NOT NULL | Same original/current unit as creation time. |
 | `atr_reference_bar_date` | TEXT NOT NULL | Fixed reference date. |
 | `fixed_atr` | TEXT NOT NULL | Positive. |
@@ -873,7 +875,9 @@ Risk bases are lot-specific so multiple entries are not silently averaged. They 
 | `content_sha256` | TEXT NOT NULL | Normalized risk basis hash. |
 | `created_at_utc` | TEXT NOT NULL | Snapshot time. |
 
-Unique: `(margin_lot_id, revision_no)` and filtered unique `supersedes_id WHERE supersedes_id IS NOT NULL`. Correcting the opening execution places the position into reconciliation and appends a new basis plus dependent risk-plan revisions; old bases remain tied to the old execution revision.
+Unique: `(margin_lot_id, revision_no)` and filtered unique `supersedes_id WHERE supersedes_id IS NOT NULL`. Correcting the opening execution places the position into reconciliation and appends a new basis plus dependent risk-plan revisions; old bases remain tied to the old execution revision. The content hash includes `price_currency` and `price_unit_basis_sha256`. The additive migration for these fields is implemented with the risk-basis persistence use case; the applied `AddBusinessSchema` migration is not rewritten.
+
+New opening writes require both unit-identity fields. They remain physically nullable only because an additive migration cannot safely invent currency or split/consolidation provenance for legacy snapshots. The SQLite check-constraint table rebuild is followed by a dedicated migration that restores the two immutable update/delete triggers.
 
 ### 6.10 `risk_plan_revisions`
 
@@ -923,7 +927,7 @@ Unique: `(analysis_run_id, position_id)`. Repository verification loads every li
 
 ### 6.12 `position_evaluations`
 
-Append-only holding re-evaluation result; never generates a close execution. This is the initial-release source of position-specific `Exit` decisions; two positions in the same instrument are evaluated independently from their exact lot/risk/cost manifests.
+Append-only holding re-evaluation result; never generates a close execution. This is the initial-release source of position-specific `Exit` decisions; two positions in the same instrument are evaluated independently from their exact lot/risk/cost manifests. The decision and fail-closed outcome contract is defined by [`risk-management.md`](./risk-management.md) `holding-risk-evaluation-v1`.
 
 | Column | Type | Constraints/notes |
 |---|---|---|
@@ -932,11 +936,12 @@ Append-only holding re-evaluation result; never generates a close execution. Thi
 | `position_id` | TEXT NOT NULL FK | Position. |
 | `position_evaluation_input_manifest_id` | TEXT NOT NULL FK UNIQUE | Exact position/market/cost input set. |
 | `evaluation_bar_date` | TEXT NOT NULL | Evaluated bar date. |
-| `exit_decision` | TEXT NOT NULL | `Hold`, `TakeProfit`, `StopLoss`, `Exit`. |
+| `evaluation_outcome` | TEXT NOT NULL | `Evaluated`, `InsufficientHistory`, `HistoryIncomplete`, `InvalidData`, `PointInTimeUnverified`, `ReconciliationRequired`, `IncompletePositionData`, `IntradaySequenceUnknown`, `Failed`. |
+| `exit_decision` | TEXT NULL | `Hold`, `TakeProfit`, `StopLoss`, `Exit`; required only for `Evaluated`, otherwise null. |
 | `reason_summary` | TEXT NOT NULL | Display explanation. |
 | `reasons_json` | TEXT NOT NULL | Structured reasons. |
-| `lot_evaluations_json` | TEXT NOT NULL | Per-lot bases/lines; avoids silent averaging. |
-| `current_quantity` | TEXT NOT NULL | Projected current-basis quantity. |
+| `lot_evaluations_json` | TEXT NOT NULL | Lot-ID-ordered outcomes, exact basis/plan IDs, lines, reach evidence, reversal evidence, decisions, and partial quantities; avoids silent averaging. |
+| `current_quantity` | TEXT NULL | Projected current-basis quantity; null only when a non-`Evaluated` outcome prevents reliable projection. |
 | `price_pnl` | TEXT NULL | Price-only reference P/L. |
 | `confirmed_cost_pnl` | TEXT NULL | Null unless confirmed ledger coverage is sufficient. |
 | `estimated_net_pnl` | TEXT NULL | Null when required estimates are unavailable. |
@@ -946,6 +951,8 @@ Append-only holding re-evaluation result; never generates a close execution. Thi
 | `created_at_utc` | TEXT NOT NULL | Insert time. |
 
 Unique: `(analysis_run_id, position_id)`.
+
+A `CHECK` enforces `(evaluation_outcome = 'Evaluated') = (exit_decision IS NOT NULL)`. `Hold` is therefore a successful decision, never a fallback for missing data or reconciliation. A non-`Evaluated` row has `partial_exit_quantity = NULL` and `partial_exit_status = 'NotApplicable'`. The manifest/result transaction is also used for fail-closed outcomes so the exact cause and inputs remain auditable. The additive migration that introduces this contract must preserve existing rows by assigning `Evaluated` only where the old row already has a valid non-null decision; it must not rewrite an applied migration.
 
 ## 7. Margin cost ledger
 

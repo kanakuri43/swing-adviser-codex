@@ -6,6 +6,11 @@ public sealed class DomainException : InvalidOperationException
         : base(message)
     {
     }
+
+    public DomainException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
 }
 
 internal static class DomainGuard

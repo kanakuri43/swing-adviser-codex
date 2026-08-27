@@ -110,24 +110,87 @@ AGENT.md / docs で仮決定した内容に基づく、今後の作業リスト�
 
 **前提（2026-08-26 レビューで判明。）**: 現状 `src/SwingAdviser.Domain/Analysis/*`（`CandidateResult`/`TechnicalAnalysisResult` 等）はエンティティ（入れ物）のみで、テクニカル指標計算・候補抽出・スコアリング・保有ポジションの損切利確判定・AIチェック実行のロジックは1行も実装されていない。セクション3で完成した「主要ユースケース」は候補/保有の参照・手動約定登録・訂正のみで、AGENT.md Application 節が挙げる「株価更新、全銘柄スキャン、候補抽出、保有再評価、AIチェック」本体は未着手。本章の検証・調整タスクはこれらの実装が前提のため、以下を先行実装タスクとして明記する（未実装のままでは「検証」を開始できない）。
 
-- [x] **テクニカル指標計算エンジンを実装する**（MACD/EMA20・50・200/ATR/出来高倍率。[`technical-analysis.md`](docs/technical-analysis.md) 準拠、Look-ahead bias 規則・point-in-time系列の遵守を含む）
+### 4.0 実装済みの前提
+
+- [x] **4.0.1 テクニカル指標計算エンジンを実装する**（MACD/EMA20・50・200/ATR/出来高倍率。[`technical-analysis.md`](docs/technical-analysis.md) 準拠、Look-ahead bias 規則・point-in-time系列の遵守を含む）
   - **実装結果（2026-08-26）**: Domain層に純粋計算エンジンと、InfrastructureのPIT選択・企業アクション調整境界だけが生成できる検証済み系列型を追加。EMA20/50/200（SMA seed）、MACD 12/26/9（signalもSMA seed）、Wilder ATR14、評価日前20本平均出来高・出来高倍率を`decimal`・中間丸めなしで算出し、当日/判定に必要な前日値、algorithm ID、正規化JSON、指標別入力hash、固定計算起点を返す。最低201本、manifestの価格revision ID/集合hash・企業アクション集合hash、件数・日付範囲・必要本数、日付順/重複、未来足、確定状態、履歴不完全、PIT未検証、企業アクション要照合をfail-closedで検証する。非線形golden値、上場来固定起点、再現性、decimal正規化、分割単位、ゼロ出来高、拒否境界を含む単体テスト21件を追加。
-- [x] **候補抽出・スコアリングロジック（全銘柄スキャン）を実装する**（Long/Short非対称条件、0〜100スコア、信頼度ラベル。[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+- [x] **4.0.2 候補抽出・スコアリングロジック（全銘柄スキャン）を実装する**（Long/Short非対称条件、0〜100スコア、信頼度ラベル。[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
   - **実装結果（2026-08-26）**: Domain層に`candidate-scoring-engine-v1`と完全正規化可能な型付き戦略パラメータを追加。MACD方向状態、EMA strict stack、方向別出来高gateをfail-closedで判定し、LongはMACD/EMA、ShortはMACD/EMA/出来高をATR正規化した強度で0〜100へ加算、High/Medium/Lowへ分類する。価格水準・分割単位不変、最終1回丸め、component合計・weight・ordinal・JSONの整合を検証する。Application層に、設定化されたTSE国内普通株ユニバースを決定的順序で処理し、指標を銘柄ごとに1回だけ計算してLong/Shortを別評価する`AllInstrumentScanService`を追加。PIT request identity、run/engine version、parameter snapshot/hashを照合し、進捗・キャンセル・銘柄単位の失敗継続・方向別ランキング・run status集計を返す。Infrastructureが準備した検証済み系列と結果保存を接続できる境界であり、外部データ取得自体はセクション5の別タスクとする。
-- [ ] **保有ポジションの再評価（損切・利確・継続保有判定）ロジックを実装する**（ATR倍数・R倍率・部分決済・建値移動・テクニカル反転条件。[`risk-management.md`](docs/risk-management.md)）
-- [ ] **AIチェック（Codex CLI）実行連携を実装する**（`AiCheckJob`/`AiAttempt`/`AiResult` の生成・タイムアウト・並列数・失敗時フォールバック。[`ai-analysis.md`](docs/ai-analysis.md)）
-- [ ] **株価更新（差分更新）バッチのApplicationユースケースを実装する**（セクション5のHTTPクライアント実装後に接続。日次更新フローの起点）
-- [ ] **バックテスト基盤を構築する**（以下の検証タスクすべての前提。[`technical-analysis.md`](docs/technical-analysis.md) Look-ahead bias 節の規則をバックテストにも適用すること）
-- [ ] MACD パラメータ 12/26/9 の妥当性検証（[`technical-analysis.md`](docs/technical-analysis.md)）
-- [ ] EMA 20/50/200 のトレンド判定ロジックの妥当性検証
-- [ ] 出来高倍率フィルタの閾値（1.5倍、仮値）の調整
-- [ ] ATR 期間14日、損切倍率 Long 3.0/Short 2.5、50%利確 1.5R、部分決済後の建値移動の妥当性検証（[`risk-management.md`](docs/risk-management.md)）
-- [ ] 候補スコアの初期仮値（Long 50/50/0、Short 40/40/20、High >= 80、Medium >= 60）をバックテストで検証・調整する（[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
-- [ ] Long/Short 非対称条件（Short は全条件一致必須）の実データでの妥当性検証
-- [ ] 上場来の初期取得について、実行時間・保存容量・取得元の履歴完全性を検証（[`data-sources.md`](docs/data-sources.md)）
-- [ ] 日次分析結果について、想定全銘柄数 × Long/Short × 指標数で DB 本体・索引・WAL の行数/bytes per day と1年増分を実測し、バックアップ容量・保持方針を決める（`indicator_results.values_json` に時系列全体を保存しない前提）
-- [ ] AI 結果 schema のうち型未確定のフィールド（Summary/TechnicalView/FundamentalView/PositiveFactors/RiskFactors/InvalidationConditions/CheckedAt/Sources）の型を確定する（[`ai-analysis.md`](docs/ai-analysis.md)）
-- [ ] Codex CLI のデフォルト timeout（120秒）・並列数2・自動チェック上位件数3/方向の妥当性を実運用で検証
+以下の未実装項目は、**原則としてチェックボックス1個をCodexの5時間利用枠1回以内で実装・テスト・差分確認まで完了できる作業単位**として分割する。`依存`に未完了項目がある場合は、先にその項目を完了する。各項目のテストは正常系だけでなく、記載したfail-closed条件とNon-negotiable rulesも確認する。
+
+### 4.1 保有ポジションの再評価
+
+- [x] **4.1.1 再評価の判定契約と競合時の優先順位を確定する**（[`risk-management.md`](docs/risk-management.md) とDB schemaだけでは一意に決まらない、ライン到達に使うOHLC、同一足で損切・利確・反転が競合した場合、過去の1.5R到達状態、複数lotの集約規則を決定表として文書化する。Long/Shortの境界値、データ不足、要照合時の期待結果まで固定する）
+  - **決定結果（2026-08-27）**: `holding-risk-evaluation-v1` を文書化。日足 High/Low の一致を含む方向別ライン到達、MACDのstrict cross、EMA20のstrictな終値状態、同一足の `StopLoss > Exit > TakeProfit > Hold` を固定した。過去1.5R到達はlot別の適格足・risk-plan revision証跡から再構築し、複数lotを平均せず同じ優先順位でpositionへ集約する。判定不能を`Hold`へ変換しない`evaluation_outcome`とnull decision契約をDB schemaへ追加し、要照合、履歴不足/不完全、PIT未検証、単位不正、日中順序不明をfail-closedにした。実DBへの追加migrationは永続化を実装する4.1.10で行う。
+- [x] **4.1.2 建玉時の固定リスク基準と初期リスクプラン生成ロジックを実装する**（`依存: 4.1.1`。`RiskBasisSnapshot` と初期 `RiskPlanRevision` を、Long 3.0 ATR、Short 2.5 ATR、1.5R、50%の凍結値から生成する。損切・利確価格、固定ATR、1R、非正価格、単位不一致をDomainテストで確認する）
+  - **実装結果（2026-08-27）**: Domain層に`RiskManagementParameters.Initial`（Long 3.0、Short 2.5、1.5R、50%）と`initial-risk-plan-factory-v1`を追加し、利用者確認済みOpen execution・MarginLot・Positionを照合して、lot別`RiskBasisSnapshot`とrevision 1・triggerなしの初期`RiskPlanRevision`を必ず同じ算出ラインから生成する。instrument/currency/split-consolidation単位hash付き価格型でentryと固定ATRの単位一致を強制し、opening価格・通貨・effective leaf、position sideをcaller入力に依存せず検証する。Long/Short golden値、初期plan不変条件、0/負の算出ライン、default値、異通貨・異株式単位・別instrument/position、opening訂正、未知side、decimal overflowを含むDomainテスト15件を追加した。単位列の追加migrationと保存接続は4.1.3で行う。
+- [x] **4.1.3 利用者確認済み新規建へリスク基準を付与・保存する**（`依存: 4.1.2`。候補由来は候補の評価日ATR、手動建玉は約定前の直近確定足ATRを使用し、risk basisと初期planを同一transactionでappend-only保存する。使用revision/manifest/parameter snapshotを凍結し、未来足を使わないRepositoryテストを追加する）
+  - **実装結果（2026-08-27）**: 利用者確認済みOpen登録transaction内でlot生成と同時に`RiskBasisSnapshot`とrevision 1の初期`RiskPlanRevision`を追記するようにした。候補由来はexact candidate graphの評価日ATR14、候補なしはJST約定日より前かつ約定時刻より前に分析・記録・available cutoffが確定した最新のVerified ATR14を使用し、opening revision、candidate、analysis input manifest、strategy parameter snapshot、currency、corporate-action set由来のprice-unit hashを凍結する。ATRなしではposition/execution/lot/risk graph全体を保存しない。単位列のadditive migration、SQLite table rebuild後のappend-only trigger復元、開発seedの未来候補・二重risk basisを修正し、候補provenance、未来分析除外、全体rollbackをRepositoryテストで確認した。
+- [ ] **4.1.4 1 lotの損切・1.5R到達・継続保有判定を実装する**（`依存: 4.1.1, 4.1.2`。有効な最新risk-plan leafを使ってLong/Short別に `StopLoss` / `TakeProfit` / `Hold` と構造化理由を返し、ライン未満・一致・超過をDomainテストで確認する）
+- [ ] **4.1.5 1.5R到達後のテクニカル反転判定を実装する**（`依存: 4.1.4`。LongはMACDデッドクロスまたはEMA20割れ、ShortはMACDゴールデンクロスまたはEMA20上抜けを評価する。各条件単独・両方・未成立・指標不足をテストし、instrument単位のExit結果を生成せずposition単位の判定に閉じる）
+- [ ] **4.1.6 一部利確候補数量の計算を実装する**（`依存: 4.1.4`。現在数量の50%を売買単位で切り下げ、決済後にも1売買単位以上残せる場合だけ `Candidate`、不可能なら `NotFeasible` とする。全決済候補への暗黙変換や保有数量の自動変更を禁止するテストを追加する）
+- [ ] **4.1.7 利用者登録済み部分決済後の建値移動を実装する**（`依存: 4.1.3, 4.1.6`。有効な部分決済約定と明示lot配分revisionがある場合だけ、Longは `max(従来stop, entry_basis)`、Shortは `min(...)` のplan revisionを追記する。価格到達だけでは追記せず、stopを不利な方向へ緩めず、旧planを上書きしないことをテストする）
+- [ ] **4.1.8 価格損益・信用コスト・コスト/Rのlot別集計を実装する**（`依存: 4.1.2`。Long/Shortの価格損益、確定コスト控除後損益、見積込みネット損益、コスト/Rを算出する。EstimateとConfirmedの二重計上を避け、既知0と未公表・取得失敗・不明を区別し、欠損を0へ変換しない）
+- [ ] **4.1.9 再評価用point-in-timeポジションprojectionと入力manifest生成を実装する**（`依存: 4.1.3, 4.1.7, 4.1.8`。約定、lot配分、企業アクション調整、契約、risk basis/plan、コストのexact leaf IDをcutoff時点で選択して正規化JSON/hashを生成する。後日訂正後の再構築、同一position/lot graph、要照合・未対応actionのfail-closedをRepositoryテストで確認する）
+- [ ] **4.1.10 評価manifestと評価結果の原子的な永続化を実装する**（`依存: 4.1.4〜4.1.9`。`position_evaluation_input_manifests` と `position_evaluations` を同一transactionでappend-only保存し、lot別根拠を残す。hash、同一run/position重複拒否、読戻し、同一銘柄の複数positionが独立することを結合テストで確認する）
+- [ ] **4.1.11 保有ポジション再評価のApplicationユースケースを実装する**（`依存: 4.1.5〜4.1.10`。Open positionを決定的順序で処理し、position単位の失敗継続、進捗、キャンセル、run status集計を実装する。全成功・一部失敗・全失敗・同一銘柄複数positionをテストし、`trade_executions`を生成しないことを確認する）
+- [ ] **4.1.12 保有画面への再評価結果接続と安全性の結合確認を行う**（`依存: 4.1.11`。最新評価、損切・利確候補、Hold理由、価格/コスト損益、要照合状態を既存の読取経路へ反映する。利用者が明示登録するまで数量・risk plan・約定履歴が変化しない回帰テストと実画面確認を行う）
+
+### 4.2 AIチェック（Codex CLI）実行連携
+
+- [ ] **4.2.1 AI実行のDomain契約をDB schemaへ整合させる**（`AiCheckJob` / `AiAttempt` / request event / result sourceへ、自動実行設定snapshot/hash、要求日時、CLI診断、Retry/Recheckの不変条件を反映する。User/Automatic別必須項目、状態遷移、終端不変、`InsufficientInformation`と`Neutral`の区別をDomainテストで確認する）
+- [ ] **4.2.2 AI入力snapshotとprompt templateの正規化・hash生成を実装する**（`依存: 4.2.1`。保存済みEntry候補から評価日、方向、テクニカルmanifest、戦略hashを含む秘密情報なしの決定的JSONとversion付きpromptを生成する。同一入力のhash再現性、未来情報・保有/Exit候補・秘密情報の除外をgolden testで確認する）
+- [ ] **4.2.3 Codex CLI実行profileの設定検証・snapshot化を実装する**（`依存: 4.2.1`。executable/PATH、working directory、model、timeout既定120秒、追加引数、最大並列既定2を解決し、秘密を除いたprofile/arguments JSONとhashを作る。既定値、上書き、不正値、hash再現性をテストする）
+- [ ] **4.2.4 AI結果のsemantic schema v1を確定する**（`依存: 4.2.1`。Summary/TechnicalView/FundamentalView/PositiveFactors/RiskFactors/InvalidationConditions/CheckedAt/Sourcesの型、null可否、上限、source順、schema versionを文書とDomain型へ反映する。`InsufficientInformation`時に売買方向を推測せず、旧versionを黙って現行扱いしないfixtureを用意する）
+- [ ] **4.2.5 Codex CLIの構造化応答parserを実装する**（`依存: 4.2.4`。version付きJSONを `AiResult` とsourcesへ変換し、Succeeded、InsufficientInformation、InvalidResponse、ParseFailureを区別する。全verdict/confidence、不正JSON/enum、必須欠落、source順をfixtureテストで確認する）
+- [ ] **4.2.6 Codex CLI process runnerを実装する**（`依存: 4.2.3`。shellを介さず引数配列で起動し、非同期stdout/stderr、exit code、timeout、利用者cancel、取得可能なCLI version/model、response hash、長さ制限・sanitized済みstderrを返す。fake CLIで成功、非0終了、timeout、cancel、大量stderr、空stdoutを統合テストする）
+- [ ] **4.2.7 AI snapshot・job・初回attempt投入Repositoryを実装する**（`依存: 4.2.1〜4.2.3`。prompt/profile snapshotの再利用とjob/request event/Queued attemptを同一transactionで保存し、既存unique条件で重複を抑止する。User/Automatic制約とrollbackをSQLiteテストで確認する）
+- [ ] **4.2.8 AI attempt遷移・結果保存・再試行Repositoryを実装する**（`依存: 4.2.5, 4.2.7`。event追記とstatus projection更新をatomic化し、診断、result/source、Retry/Recheckの新attempt、Queued取消を保存する。無効遷移・終端更新拒否、attempt番号、過去結果不変、1 job 1 activeをテストする）
+- [ ] **4.2.9 利用者選択AIチェックのApplicationユースケースを実装する**（`依存: 4.2.2, 4.2.3, 4.2.7`。単件/複数の明示選択を検証・凍結してenqueueし、自動jobがQueuedなら複製せず優先度昇格eventを追加する。Entry候補限定、部分失敗継続、重複抑止をテストする）
+- [ ] **4.2.10 自動AIチェック対象選定ユースケースを実装する**（`依存: 4.2.2, 4.2.3, 4.2.7`。有効時だけLong/Short各上位N件をscore降順・同点code昇順で選び、rank/policy/config snapshotを保存する。既定3件/方向、無効、N上書き、テクニカル確定前の投入拒否をテストする）
+- [ ] **4.2.11 永続AIキューworkerを実装する**（`依存: 4.2.5, 4.2.6, 4.2.8`。priority/requested時刻順、最大並列数の範囲でRunning化→実行→parse→終端保存を行い、1件失敗で他を停止せず暗黙retryしない。成功、各失敗、情報不足、cancel、並列上限、User優先を決定的にテストする）
+- [ ] **4.2.12 アプリ起動時のAIキュー復旧を実装する**（`依存: 4.2.8, 4.2.11`。残存Runningをevent付き `Failed/Interrupted` へ変換し、Queuedを再開可能にする。終端attemptを変更しない再起動テストを追加する）
+- [ ] **4.2.13 最新AI結果・Stale判定の照会を実装する**（`依存: 4.2.8`。候補照会へ最新attempt/result/失敗詳細/sourceを投影し、新しいanalysis runがあれば保存結果を書き換えずStaleを導出する。未実行、各終端状態、Retry後最新、AI失敗時もテクニカル候補が残ることをテストする）
+- [ ] **4.2.14 候補画面のAI実行・取消・再試行UIを接続する**（`依存: 4.2.9, 4.2.11, 4.2.13`。単件/複数選択、明示実行、Queued/Running表示、Queued取消、失敗系Retry/Recheck、非同期更新、多重押下防止をViewModel経由で接続する。AI見通しを売買推奨として表示せず、AI失敗でも候補・手動約定機能を利用可能にする）
+- [ ] **4.2.15 AIチェック連携のE2E検証を追加する**（`依存: 4.2.9〜4.2.14`。一時SQLiteとfake CLIでenqueue→実行→parse→永続化→再表示を確認し、成功、timeout、非0終了、情報不足、再起動復旧を通す。利用可能な環境では実Codex CLIの単件smokeも行い、未認証等は診断可能な失敗として扱う）
+
+### 4.3 株価更新（差分更新）バッチのApplicationユースケース
+
+- [ ] **4.3.1 株価更新ユースケースのprovider非依存Application契約を定義する**（request/result、対象銘柄、取得範囲、進捗、キャンセル、設定snapshot、`IPriceHistorySource`、永続化port、Http/RateLimit/Timeout/InvalidData/MissingData/ProviderChanged/Cancelled/DatabaseLocked/Unknownの失敗分類を定義する。不正時刻、空provider、重複銘柄、範囲逆転をfail-fastし、銘柄順と設定hashの決定性をテストする）
+- [ ] **4.3.2 初回取得・差分取得の範囲計画を実装する**（`依存: 4.3.1`。最新の有効な日足leaf、上場日証跡、評価日から、初回は上場来、2回目以降は設定化した訂正再取得重複期間を含む差分範囲を算出する。履歴なし/あり、上場日不明、未来日、上場廃止、同日再実行を境界テストする）
+- [ ] **4.3.3 data update run/item/failureのRepositoryと状態遷移を実装する**（`依存: 4.3.1`。Queued→Running→Succeeded/PartiallySucceeded/Failed/Cancelled、秘密を除く設定snapshot/hash、項目別結果、sanitized failureを保存する。終端後更新拒否、件数集計、監査行のUPDATE/DELETE拒否をSQLiteテストで確認する）
+- [ ] **4.3.4 日足の冪等な追記・訂正保存を実装する**（`依存: 4.3.1, 4.3.3`。natural key、canonical content hash、`daily_price_revisions`、source artifact、data update itemを1取引境界で保存し、Inserted/Corrected/Unchangedを判定する。同一再取得でrevisionを増やさず、訂正はsupersedes付きで追記し、不正OHLCV・重複日・通貨不整合を拒否する）
+- [ ] **4.3.5 同一chart応答の企業アクション差分保存を実装する**（`依存: 4.3.1, 4.3.3`。source event IDまたはderived keyでidentityを決め、分割・併合・配当・取消・訂正をappend-only保存し、available/observed/recorded時刻とPIT状態を残す。同一イベント、訂正、取消、未知・不完全イベントをテストし、推測で補完しない）
+- [ ] **4.3.6 価格履歴の完全性評価を実装する**（`依存: 4.3.2, 4.3.4`。取得結果、上場日証跡、確定バー、欠損からCompleteFromListing/Incomplete/Unverified/Invalidを追記する。上場日不明、先頭・途中欠落、不正バーをComplete扱いせず、下流へ明示的な `HistoryIncomplete` 等を渡す）
+- [ ] **4.3.7 全銘柄差分更新バッチのオーケストレーションを実装する**（`依存: 4.3.2〜4.3.6`。範囲計画→source取得→日足/企業アクション保存→完全性評価を銘柄単位で実行し、多重実行防止、制限付き並列取得、進捗、キャンセル、失敗継続、最終status集計を行う。fake sourceで全成功・部分成功・全失敗・rate limit・再実行をテストし、売買履歴や分析結果を生成しない）
+- [ ] **4.3.8 セクション5のYahoo HTTPクライアントを接続して結合検証する**（`依存: 4.3.7、セクション5のchart API client、銘柄コード正規化ルール`。DIでInfrastructure portを接続し、日足・企業アクション・取得時刻/artifact・分類済み失敗をApplicationへ渡す。stub HTTPで初回上場来、翌日差分、Unchanged、過去バー訂正、429、timeout、schema変更、部分失敗を確認する。実APIの安定性測定はセクション5に残す）
+
+### 4.4 バックテスト基盤
+
+- [ ] **4.4.1 バックテストの実行契約と「正式結果」の成立条件を定義する**（日付範囲、ユニバース、戦略parameter snapshot、売買・コスト仮定、結果型、再現性情報を型付き契約にする。`Backtest` / `Succeeded` / `PointInTime Verified`を満たすrunだけを正式結果とし、PIT保証なしは参考結果として明示する。実運用の約定・position・lotへ書き込まない境界をArchitectureテストで固定する）
+- [ ] **4.4.2 market calendarから評価日列を生成する**（`依存: 4.4.1`。指定期間と凍結したcalendar versionから取引日を昇順生成し、休日を推測・補間しない。期間端、休場日、calendar欠損・version不一致をテストする）
+- [ ] **4.4.3 評価日ごとのpoint-in-time再生入力builderを実装する**（`依存: 4.4.1, 4.4.2`。各評価日Dと情報cutoff A/recorded cutoffから、当時利用可能な銘柄master、日足revision、企業actionだけを選び、exact manifest/hashを生成する。後日訂正・未来action・available_at不明を正式入力へ混入させないRepositoryテストを追加する）
+- [ ] **4.4.4 本番の指標・候補engineを再利用する履歴スキャンを実装する**（`依存: 4.4.3`。各評価日を `AnalysisRunMode.Backtest` で既存 `AllInstrumentScanService` へ渡し、engine/version/parameter snapshotを固定して候補・除外理由を保存する。同じ入力の再現性と、日付間で未来の指標値を再利用しないことをテストする）
+- [ ] **4.4.5 バックテスト専用のentry/exit価格成立ルールを確定して型付きparameter化する**（`依存: 4.4.1`。候補日の次取引日以降のentry、Long/Short、寄付/指値相当、slippage、手数料、売建不可、同一足でstop/targetが両方到達した場合の扱いを文書化・version化する。未確定値をコードへ埋め込まず、曖昧な足を有利に補完しない）
+- [ ] **4.4.6 バックテスト専用のposition/lot状態遷移engineを実装する**（`依存: 4.1.4〜4.1.7, 4.4.5`。entry、Long/Short、stop、1.5R部分利確、建値移動、反転exit、最終日処理を純粋計算し、イベントと根拠を返す。実運用 `trade_executions` / `positions` / `margin_lots` を生成せず、価格競合・売買単位・資金不足をgolden testで確認する）
+- [ ] **4.4.7 バックテスト指標集計engineを実装する**（`依存: 4.4.6`。取引数、勝率、平均/中央値R、総損益、profit factor、最大drawdown、保有期間、Long/Short別内訳、除外件数をイベント列から決定的に算出する。0件、全勝/全敗、コスト、部分利確、未決済を手計算golden値でテストする）
+- [ ] **4.4.8 バックテスト保存schemaを追加migrationとして実装する**（`依存: 4.4.1, 4.4.5`。definition/run、日次portfolio、バックテスト専用position/lot event、metricsを、分析run/manifest/parameter hashへ参照可能なappend-only表として追加する。実運用約定表とのFK/書込経路を持たないこと、制約、索引、migration upgradeをテストする）
+- [ ] **4.4.9 バックテスト結果Repositoryを実装する**（`依存: 4.4.7, 4.4.8`。run状態、日次状態、イベント、metricsをtransaction単位で追記し、terminal runを不変にする。中断run、重複防止、hash/件数整合、保存→読戻し→同一metrics再計算をSQLiteテストで確認する）
+- [ ] **4.4.10 期間全体のバックテストApplicationユースケースを実装する**（`依存: 4.4.2〜4.4.9`。評価日列→PIT入力→履歴スキャン→状態遷移→保存を順に実行し、進捗、キャンセル、再開不可の中断状態、失敗隔離、最終statusを返す。同一parameter/inputの再実行が同一結果になる統合テストを追加する）
+- [ ] **4.4.11 複数parameter snapshotの比較ユースケースを実装する**（`依存: 4.4.10`。同じ期間・universe・PITデータに対するparameter setを独立runとして実行し、metrics差分を比較可能にする。全期間統計を候補スコア計算へ戻さず、各runのversion/hashと成功条件が同一でない比較を警告または拒否する）
+- [ ] **4.4.12 Look-ahead biasと実運用データ非干渉のE2E回帰テストを追加する**（`依存: 4.4.10`。小さな既知データで未来価格、翌日価格での当日signal確定、後日訂正、未来/後日判明企業action、available_at不明を検査する。実運用の約定・position件数が前後不変であること、保存runのmanifest/hashから結果を再現できること、build/test成功を確認する）
+
+### 4.5 仮決定パラメータと運用値の検証・調整
+
+- [ ] **4.5.1 MACD パラメータ 12/26/9 の妥当性を検証する**（[`technical-analysis.md`](docs/technical-analysis.md)）
+- [ ] **4.5.2 EMA 20/50/200 のトレンド判定ロジックの妥当性を検証する**
+- [ ] **4.5.3 出来高倍率フィルタの閾値（1.5倍、仮値）を調整する**
+- [ ] **4.5.4 ATR 期間14日、損切倍率 Long 3.0/Short 2.5、50%利確 1.5R、部分決済後の建値移動の妥当性を検証する**（[`risk-management.md`](docs/risk-management.md)）
+- [ ] **4.5.5 候補スコアの初期仮値（Long 50/50/0、Short 40/40/20、High >= 80、Medium >= 60）をバックテストで検証・調整する**（[`technical-analysis.md`](docs/technical-analysis.md) Candidate score calculation）
+- [ ] **4.5.6 Long/Short 非対称条件（Short は全条件一致必須）の実データでの妥当性を検証する**
+- [ ] **4.5.7 上場来の初期取得について、実行時間・保存容量・取得元の履歴完全性を検証する**（[`data-sources.md`](docs/data-sources.md)）
+- [ ] **4.5.8 日次分析結果のDB増加量と保持方針を実測・決定する**（想定全銘柄数 × Long/Short × 指標数でDB本体・索引・WALの行数/bytes per dayと1年増分を測る。`indicator_results.values_json` に時系列全体を保存しない前提）
+- [ ] **4.5.9 Codex CLIのtimeout 120秒・並列数2・自動チェック上位3件/方向の妥当性を実運用で検証する**
 
 ## 5. 外部データ取得の実装検証
 

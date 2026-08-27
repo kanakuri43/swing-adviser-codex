@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SwingAdviser.Application.TradingWorkspace;
+using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.Common;
 using SwingAdviser.Infrastructure.Persistence;
 using SwingAdviser.Infrastructure.Persistence.Entities;
@@ -86,7 +87,7 @@ public static class DevelopmentDataSeeder
             longSeed.CandidateId,
             PositionSide.Long,
             ExecutionKind.Open,
-            new DateTimeOffset(2026, 8, 20, 0, 15, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 26, 8, 15, 0, TimeSpan.Zero),
             2780m,
             200,
             "JPY",
@@ -198,6 +199,13 @@ public static class DevelopmentDataSeeder
             ReasonSummary = side == PositionSide.Long ? "上昇トレンドと出来高を確認" : "下降トレンドと戻り売り条件を確認",
             ReasonsJson = "[\"development seed\"]", CalculationStartBarDate = EvaluationDate, CreatedAtUtc = SeedInstant,
         });
+        context.Add(new IndicatorResultRow
+        {
+            Id = Guid.NewGuid(), TechnicalAnalysisResultId = technicalId, IndicatorKey = "ATR14",
+            AlgorithmId = TechnicalIndicatorEngine.AtrAlgorithmId, ParametersJson = "{\"period\":14}",
+            ValuesJson = $"{{\"schemaVersion\":\"1\",\"value\":{{\"evaluationBarDate\":\"{EvaluationDate:yyyy-MM-dd}\",\"current\":40}}}}",
+            CalculationStartBarDate = EvaluationDate, InputSha256 = Hash((char)(hashSeed + 6)), Ordinal = 0,
+        });
         context.Add(new CandidateResultRow
         {
             Id = candidateId, TechnicalAnalysisResultId = technicalId, Score = score,
@@ -219,24 +227,10 @@ public static class DevelopmentDataSeeder
     {
         await using var context = new SwingAdviserDbContext(options);
         var lot = await context.Set<MarginLotRow>().SingleAsync(x => x.PositionId == opening.PositionId, cancellationToken);
-        var riskBasisId = Guid.NewGuid();
-        context.Add(new RiskBasisSnapshotRow
-        {
-            Id = riskBasisId, MarginLotId = lot.Id, RevisionNo = 1,
-            OpeningTradeExecutionRevisionId = opening.RevisionId, OriginCandidateResultId = seed.CandidateId,
-            StrategyParameterSnapshotId = strategyId, AnalysisInputManifestId = seed.ManifestId,
-            EntryBasisPrice = 2780m, AtrReferenceBarDate = EvaluationDate, FixedAtr = 40m, AtrPeriod = 14,
-            AtrAlgorithmId = "development-seed", StopMultiplier = 3m, RiskAmountR = 120m,
-            PartialTakeProfitRMultiple = 1.5m, PartialTakeProfitFraction = 0.5m,
-            InitialStopPrice = 2420m, InitialTakeProfitPrice = 2960m,
-            ContentSha256 = Hash('e'), CreatedAtUtc = SeedInstant,
-        });
-        context.Add(new RiskPlanRevisionRow
-        {
-            Id = Guid.NewGuid(), RevisionNo = 1, ContentSha256 = Hash('f'), RecordedAtUtc = SeedInstant,
-            RiskBasisSnapshotId = riskBasisId, StopPrice = 2420m, TakeProfitPrice = 2960m,
-            PlanReason = RiskPlanReason.Initial.ToString(), EffectiveAtUtc = SeedInstant, IsCostAdjusted = false,
-        });
+        var riskBasis = await context.Set<RiskBasisSnapshotRow>()
+            .SingleAsync(x => x.MarginLotId == lot.Id, cancellationToken);
+        var riskPlan = await context.Set<RiskPlanRevisionRow>()
+            .SingleAsync(x => x.RiskBasisSnapshotId == riskBasis.Id, cancellationToken);
         var evaluationManifestId = Guid.NewGuid();
         context.Add(new PositionEvaluationInputManifestRow
         {
@@ -244,7 +238,7 @@ public static class DevelopmentDataSeeder
             AnalysisInputManifestId = seed.ManifestId, CurrentPriceRevisionId = seed.PriceRevisionId,
             TradeExecutionRevisionIdsJson = $"[\"{opening.RevisionId:D}\"]", LotAllocationRevisionIdsJson = "[]",
             PositionAdjustmentIdsJson = "[]", ContractRevisionIdsJson = "[]",
-            RiskBasisSnapshotIdsJson = $"[\"{riskBasisId:D}\"]", RiskPlanRevisionIdsJson = "[]",
+            RiskBasisSnapshotIdsJson = $"[\"{riskBasis.Id:D}\"]", RiskPlanRevisionIdsJson = $"[\"{riskPlan.Id:D}\"]",
             MarginCostObservationIdsJson = "[]", ProjectionVersion = "development-seed",
             RecordedCutoffAtUtc = SeedInstant, ManifestSha256 = Hash('0'), CreatedAtUtc = SeedInstant,
         });

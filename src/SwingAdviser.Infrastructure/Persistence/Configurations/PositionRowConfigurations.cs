@@ -206,6 +206,8 @@ internal sealed class RiskBasisSnapshotRowConfiguration : IEntityTypeConfigurati
             table.HasCheckConstraint("ck_risk_basis_snapshots_revision_no", "revision_no > 0");
             table.HasCheckConstraint("ck_risk_basis_snapshots_fixed_atr", "CAST(fixed_atr AS NUMERIC) > 0");
             table.HasCheckConstraint("ck_risk_basis_snapshots_atr_period", "atr_period > 0");
+            table.HasCheckConstraint("ck_risk_basis_snapshots_price_currency", "price_currency IS NULL OR length(price_currency) = 3");
+            table.HasCheckConstraint("ck_risk_basis_snapshots_price_unit_basis_sha256", "price_unit_basis_sha256 IS NULL OR (length(price_unit_basis_sha256) = 64 AND price_unit_basis_sha256 NOT GLOB '*[^0-9a-f]*')");
             table.HasCheckConstraint("ck_risk_basis_snapshots_partial_fraction", "CAST(partial_take_profit_fraction AS NUMERIC) > 0 AND CAST(partial_take_profit_fraction AS NUMERIC) <= 1");
             table.HasCheckConstraint("ck_risk_basis_snapshots_content_sha256", HashCheck("content_sha256"));
             table.HasCheckConstraint("ck_risk_basis_snapshots_revision_chain", "(revision_no = 1 AND supersedes_id IS NULL) OR (revision_no > 1 AND supersedes_id IS NOT NULL AND supersedes_id <> id)");

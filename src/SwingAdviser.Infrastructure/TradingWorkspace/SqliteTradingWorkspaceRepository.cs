@@ -3,7 +3,9 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SwingAdviser.Application.TradingWorkspace;
+using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.Common;
+using SwingAdviser.Domain.Positions;
 using SwingAdviser.Infrastructure.Persistence;
 using SwingAdviser.Infrastructure.Persistence.Entities;
 
@@ -41,20 +43,9 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
             throw new InvalidOperationException("The selected instrument no longer exists.");
         }
 
-        if (request.CandidateContextId is { } candidateId)
-        {
-            var candidate = await context.Set<CandidateResultRow>()
-                .SingleOrDefaultAsync(x => x.Id == candidateId, cancellationToken)
-                ?? throw new InvalidOperationException("The selected candidate no longer exists.");
-            var technical = await context.Set<TechnicalAnalysisResultRow>()
-                .SingleAsync(x => x.Id == candidate.TechnicalAnalysisResultId, cancellationToken);
-            if (request.Kind != ExecutionKind.Open ||
-                technical.InstrumentId != request.InstrumentId ||
-                technical.PositionSide != request.Side.ToString())
-            {
-                throw new InvalidOperationException("The candidate context does not match this opening execution.");
-            }
-        }
+        var riskInput = request.Kind == ExecutionKind.Open
+            ? await ResolveInitialRiskInputAsync(context, request, cancellationToken)
+            : null;
 
         var now = DateTimeOffset.UtcNow;
         var positionId = request.PositionId ?? Guid.NewGuid();
@@ -65,6 +56,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                 Id = positionId,
                 InstrumentId = request.InstrumentId,
                 PositionSide = request.Side.ToString(),
+                StrategyParameterSnapshotId = riskInput!.StrategyParameterSnapshotId,
                 OriginCandidateResultId = request.CandidateContextId,
                 CreatedAtUtc = now,
             });
@@ -191,6 +183,16 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                 contract.Evidence,
             });
             context.Add(contract);
+
+            AddInitialRiskPlan(
+                context,
+                request,
+                riskInput!,
+                positionId,
+                executionId,
+                revision,
+                lotId,
+                now);
         }
         else
         {
@@ -299,6 +301,289 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
     }
 
     private SwingAdviserDbContext CreateContext() => new(options);
+
+    private static async Task<InitialRiskInput> ResolveInitialRiskInputAsync(
+        SwingAdviserDbContext context,
+        RegisterManualExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var eligibleStatus = new[]
+        {
+            AnalysisRunStatus.Succeeded.ToString(),
+            AnalysisRunStatus.PartiallySucceeded.ToString(),
+        };
+        var executionJstDate = DateOnly.FromDateTime(
+            request.ExecutedAtUtc.ToOffset(TimeSpan.FromHours(9)).DateTime);
+
+        var query =
+            from technical in context.Set<TechnicalAnalysisResultRow>().AsNoTracking()
+            join run in context.Set<AnalysisRunRow>().AsNoTracking() on technical.AnalysisRunId equals run.Id
+            join manifest in context.Set<AnalysisInputManifestRow>().AsNoTracking() on technical.AnalysisInputManifestId equals manifest.Id
+            join indicator in context.Set<IndicatorResultRow>().AsNoTracking() on technical.Id equals indicator.TechnicalAnalysisResultId
+            where technical.InstrumentId == request.InstrumentId
+                  && technical.PositionSide == request.Side.ToString()
+                  && technical.SignalPurpose == SignalPurpose.Entry.ToString()
+                  && eligibleStatus.Contains(run.Status)
+                  && run.PointInTimeStatus == PointInTimeStatus.Verified.ToString()
+                  && run.AnalyzedAtUtc < request.ExecutedAtUtc
+                  && run.RecordedCutoffAtUtc < request.ExecutedAtUtc
+                  && manifest.AnalysisRunId == run.Id
+                  && manifest.InstrumentId == request.InstrumentId
+                  && manifest.HistoryStatus == HistoryStatus.Complete.ToString()
+                  && manifest.PointInTimeStatus == PointInTimeStatus.Verified.ToString()
+                  && manifest.LastBarDate == run.EvaluationBarDate
+                  && manifest.SelectedAvailableCutoffAtUtc < request.ExecutedAtUtc
+                  && manifest.SelectedRecordedCutoffAtUtc < request.ExecutedAtUtc
+                  && indicator.IndicatorKey == "ATR14"
+                  && indicator.AlgorithmId == TechnicalIndicatorEngine.AtrAlgorithmId
+            select new { technical, run, manifest, indicator };
+
+        if (request.CandidateContextId is { } candidateId)
+        {
+            var candidate = await context.Set<CandidateResultRow>().AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == candidateId, cancellationToken)
+                ?? throw new InvalidOperationException("The selected candidate no longer exists.");
+            query = query.Where(x => x.technical.Id == candidate.TechnicalAnalysisResultId &&
+                                     x.technical.Outcome == TechnicalAnalysisOutcome.Candidate.ToString());
+        }
+        else
+        {
+            query = query.Where(x => x.run.EvaluationBarDate < executionJstDate);
+        }
+
+        var selected = await query
+            .OrderByDescending(x => x.run.EvaluationBarDate)
+            .ThenByDescending(x => x.run.AnalyzedAtUtc)
+            .ThenBy(x => x.indicator.Ordinal)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException(
+                request.CandidateContextId is null
+                    ? "No point-in-time verified ATR from the latest confirmed pre-execution bar is available."
+                    : "The candidate context has no eligible point-in-time verified ATR before the opening execution.");
+
+        var period = ReadPositiveInt(selected.indicator.ParametersJson, "period");
+        if (period != 14)
+        {
+            throw new InvalidDataException("The initial risk basis requires ATR period 14.");
+        }
+        var (referenceDate, atr) = ReadAtrValue(selected.indicator.ValuesJson);
+        if (referenceDate != selected.run.EvaluationBarDate)
+        {
+            throw new InvalidDataException("The ATR reference date does not match the frozen analysis run.");
+        }
+
+        var masterRows = await context.Set<InstrumentMasterRevisionRow>().AsNoTracking()
+            .Where(x => x.InstrumentId == request.InstrumentId &&
+                        x.RecordedAtUtc < request.ExecutedAtUtc &&
+                        (x.AvailableAtUtc == null || x.AvailableAtUtc < request.ExecutedAtUtc))
+            .ToListAsync(cancellationToken);
+        var master = Leaf(masterRows, x => x.Id, x => x.SupersedesId)
+            .Where(x => x.EffectiveFromDate <= executionJstDate &&
+                        (x.EffectiveToDate == null || executionJstDate <= x.EffectiveToDate))
+            .OrderByDescending(x => x.EffectiveFromDate)
+            .ThenByDescending(x => x.RecordedAtUtc)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException("No point-in-time instrument master is available for the opening execution.");
+        var currency = new CurrencyCode(request.Currency);
+        if (!string.Equals(master.Currency, currency.Value, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The opening currency does not match the point-in-time instrument master.");
+        }
+        var priceUnitBasisSha256 = Hash(new
+        {
+            SchemaVersion = "risk-price-unit-basis-v1",
+            request.InstrumentId,
+            Currency = currency.Value,
+            selected.manifest.CorporateActionSetSha256,
+        });
+
+        return new InitialRiskInput(
+            request.CandidateContextId,
+            selected.run.StrategyParameterSnapshotId,
+            selected.manifest.Id,
+            referenceDate,
+            atr,
+            period,
+            selected.indicator.AlgorithmId,
+            currency.Value,
+            priceUnitBasisSha256);
+    }
+
+    private static void AddInitialRiskPlan(
+        SwingAdviserDbContext context,
+        RegisterManualExecutionRequest request,
+        InitialRiskInput riskInput,
+        Guid positionId,
+        Guid executionId,
+        TradeExecutionRevisionRow executionRevision,
+        Guid lotId,
+        DateTimeOffset recordedAtUtc)
+    {
+        var position = new Position(
+            new PositionId(positionId),
+            new InstrumentId(request.InstrumentId),
+            request.Side,
+            riskInput.StrategyParameterSnapshotId,
+            request.CandidateContextId is { } candidateId ? new CandidateResultId(candidateId) : null,
+            recordedAtUtc);
+        var execution = position.RegisterUserConfirmedExecution(
+            new TradeExecutionId(executionId),
+            ExecutionKind.Open,
+            new UserConfirmedExecutionInput(
+                request.ExecutedAtUtc,
+                new PositivePrice(request.Price),
+                new WholeShareQuantity(request.Quantity),
+                new CurrencyCode(request.Currency),
+                request.UserConfirmedAtUtc,
+                request.Broker,
+                request.ExternalReference,
+                request.UserNote),
+            new TradeExecutionRevisionId(executionRevision.Id),
+            new RevisionMetadata(
+                executionRevision.Id,
+                1,
+                null,
+                new Sha256Hash(executionRevision.ContentSha256),
+                recordedAtUtc),
+            recordedAtUtc,
+            request.CandidateContextId is { } contextId ? new CandidateResultId(contextId) : null);
+        var lot = MarginLot.FromUserConfirmedOpening(new MarginLotId(lotId), execution, recordedAtUtc);
+        var unit = new RiskPriceUnit(
+            new InstrumentId(request.InstrumentId),
+            new CurrencyCode(riskInput.PriceCurrency),
+            new Sha256Hash(riskInput.PriceUnitBasisSha256));
+        var riskBasisId = Guid.NewGuid();
+        var riskPlanId = Guid.NewGuid();
+        var placeholderHash = new Sha256Hash(new string('0', 64));
+
+        var draft = InitialRiskPlanBundle.Create(
+            riskBasisId,
+            new RevisionMetadata(riskPlanId, 1, null, placeholderHash, recordedAtUtc),
+            position,
+            lot,
+            new UnitizedRiskPrice(new PositivePrice(request.Price), unit),
+            riskInput.AtrReferenceBarDate,
+            new UnitizedRiskPrice(new PositivePrice(riskInput.FixedAtr), unit),
+            riskInput.AtrPeriod,
+            riskInput.AtrAlgorithmId,
+            RiskManagementParameters.Initial,
+            placeholderHash,
+            request.ExecutedAtUtc,
+            recordedAtUtc);
+
+        var basisHash = Hash(new
+        {
+            SchemaVersion = "risk-basis-snapshot-v1",
+            MarginLotId = lotId,
+            OpeningTradeExecutionRevisionId = executionRevision.Id,
+            riskInput.OriginCandidateResultId,
+            riskInput.StrategyParameterSnapshotId,
+            riskInput.AnalysisInputManifestId,
+            riskInput.PriceCurrency,
+            riskInput.PriceUnitBasisSha256,
+            EntryBasisPrice = request.Price,
+            riskInput.AtrReferenceBarDate,
+            riskInput.FixedAtr,
+            riskInput.AtrPeriod,
+            riskInput.AtrAlgorithmId,
+            draft.RiskBasis.StopMultiplier,
+            draft.RiskBasis.RiskAmountR,
+            draft.RiskBasis.PartialTakeProfitRMultiple,
+            draft.RiskBasis.PartialTakeProfitFraction,
+            InitialStopPrice = draft.RiskBasis.InitialStopPrice.Value,
+            InitialTakeProfitPrice = draft.RiskBasis.InitialTakeProfitPrice.Value,
+        });
+        var planHash = Hash(new
+        {
+            SchemaVersion = "risk-plan-revision-v1",
+            RiskBasisSnapshotId = riskBasisId,
+            StopPrice = draft.RiskPlan.StopPrice.Value,
+            TakeProfitPrice = draft.RiskPlan.TakeProfitPrice.Value,
+            PlanReason = RiskPlanReason.Initial.ToString(),
+            EffectiveAtUtc = request.ExecutedAtUtc,
+            IsCostAdjusted = false,
+        });
+        var bundle = InitialRiskPlanBundle.Create(
+            riskBasisId,
+            new RevisionMetadata(riskPlanId, 1, null, new Sha256Hash(planHash), recordedAtUtc),
+            position,
+            lot,
+            new UnitizedRiskPrice(new PositivePrice(request.Price), unit),
+            riskInput.AtrReferenceBarDate,
+            new UnitizedRiskPrice(new PositivePrice(riskInput.FixedAtr), unit),
+            riskInput.AtrPeriod,
+            riskInput.AtrAlgorithmId,
+            RiskManagementParameters.Initial,
+            new Sha256Hash(basisHash),
+            request.ExecutedAtUtc,
+            recordedAtUtc);
+
+        context.Add(new RiskBasisSnapshotRow
+        {
+            Id = riskBasisId,
+            MarginLotId = lotId,
+            RevisionNo = 1,
+            OpeningTradeExecutionRevisionId = executionRevision.Id,
+            OriginCandidateResultId = riskInput.OriginCandidateResultId,
+            StrategyParameterSnapshotId = riskInput.StrategyParameterSnapshotId,
+            AnalysisInputManifestId = riskInput.AnalysisInputManifestId,
+            PriceCurrency = riskInput.PriceCurrency,
+            PriceUnitBasisSha256 = riskInput.PriceUnitBasisSha256,
+            EntryBasisPrice = bundle.RiskBasis.EntryBasisPrice.Value,
+            AtrReferenceBarDate = bundle.RiskBasis.AtrReferenceBarDate,
+            FixedAtr = bundle.RiskBasis.FixedAtr.Value,
+            AtrPeriod = bundle.RiskBasis.AtrPeriod,
+            AtrAlgorithmId = bundle.RiskBasis.AtrAlgorithmId,
+            StopMultiplier = bundle.RiskBasis.StopMultiplier,
+            RiskAmountR = bundle.RiskBasis.RiskAmountR,
+            PartialTakeProfitRMultiple = bundle.RiskBasis.PartialTakeProfitRMultiple,
+            PartialTakeProfitFraction = bundle.RiskBasis.PartialTakeProfitFraction,
+            InitialStopPrice = bundle.RiskBasis.InitialStopPrice.Value,
+            InitialTakeProfitPrice = bundle.RiskBasis.InitialTakeProfitPrice.Value,
+            ContentSha256 = bundle.RiskBasis.ContentHash.Value,
+            CreatedAtUtc = bundle.RiskBasis.CreatedAtUtc,
+        });
+        context.Add(new RiskPlanRevisionRow
+        {
+            Id = riskPlanId,
+            RevisionNo = 1,
+            ContentSha256 = bundle.RiskPlan.Audit.ContentHash.Value,
+            RecordedAtUtc = bundle.RiskPlan.Audit.RecordedAtUtc,
+            RiskBasisSnapshotId = riskBasisId,
+            StopPrice = bundle.RiskPlan.StopPrice.Value,
+            TakeProfitPrice = bundle.RiskPlan.TakeProfitPrice.Value,
+            PlanReason = bundle.RiskPlan.Reason.ToString(),
+            EffectiveAtUtc = bundle.RiskPlan.EffectiveAtUtc,
+            IsCostAdjusted = false,
+        });
+    }
+
+    private static int ReadPositiveInt(string json, string propertyName)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty(propertyName, out var value) ||
+            !value.TryGetInt32(out var parsed) || parsed <= 0)
+        {
+            throw new InvalidDataException($"Indicator parameters require a positive '{propertyName}'.");
+        }
+
+        return parsed;
+    }
+
+    private static (DateOnly ReferenceDate, decimal Atr) ReadAtrValue(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("value", out var value) ||
+            !value.TryGetProperty("evaluationBarDate", out var dateElement) ||
+            !DateOnly.TryParseExact(dateElement.GetString(), "yyyy-MM-dd", out var referenceDate) ||
+            !value.TryGetProperty("current", out var atrElement) ||
+            !atrElement.TryGetDecimal(out var atr) || atr <= 0m)
+        {
+            throw new InvalidDataException("ATR values must contain a positive current value and evaluation bar date.");
+        }
+
+        return (referenceDate, atr);
+    }
 
     private static async Task<IReadOnlyList<CandidateListItem>> LoadCandidatesAsync(
         SwingAdviserDbContext context,
@@ -860,4 +1145,15 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
     {
         public static InstrumentIdentity Unknown { get; } = new("コード不明", "銘柄名不明");
     }
+
+    private sealed record InitialRiskInput(
+        Guid? OriginCandidateResultId,
+        Guid StrategyParameterSnapshotId,
+        Guid AnalysisInputManifestId,
+        DateOnly AtrReferenceBarDate,
+        decimal FixedAtr,
+        int AtrPeriod,
+        string AtrAlgorithmId,
+        string PriceCurrency,
+        string PriceUnitBasisSha256);
 }
