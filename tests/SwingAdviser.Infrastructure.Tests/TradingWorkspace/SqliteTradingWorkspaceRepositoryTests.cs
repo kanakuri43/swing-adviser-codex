@@ -392,6 +392,133 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
         Assert.Equal(RiskPlanReason.PartialExitBreakeven.ToString(), plans[2].PlanReason);
     }
 
+    [Fact]
+    public async Task Load_ProjectsPinnedEvaluationAndCostFields_WithoutChangingPositionGraph()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+        var opening = await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 900m, 100, "JPY", Utc(2), true, []));
+        await fixture.AddPositionEvaluationAsync(
+            opening.PositionId,
+            PositionEvaluationOutcome.Evaluated,
+            ExitDecision.TakeProfit,
+            currentQuantity: 100m,
+            pricePnl: 10_000m,
+            confirmedCostPnl: 9_700m,
+            estimatedNetPnl: 9_600m,
+            costToRRatio: 0.02m,
+            partialExitQuantity: 50,
+            partialExitStatus: PartialExitStatus.Candidate);
+        await fixture.AddUnlinkedLaterPriceAsync(1100m);
+
+        var countsBeforeLoad = await ReadGraphCountsAsync(fixture.Options);
+        var item = Assert.Single((await service.LoadAsync()).Positions);
+        var countsAfterLoad = await ReadGraphCountsAsync(fixture.Options);
+
+        Assert.Equal(countsBeforeLoad, countsAfterLoad);
+        Assert.Equal(100m, item.Quantity);
+        Assert.Equal(1000m, item.CurrentPrice);
+        Assert.Equal(new DateOnly(2026, 8, 25), item.EvaluationBarDate);
+        Assert.Equal(PositionEvaluationOutcome.Evaluated, item.EvaluationOutcome);
+        Assert.False(item.IsEvaluationStale);
+        Assert.Equal(ExitDecision.TakeProfit, item.Decision);
+        Assert.Equal(10_000m, item.PriceProfitAndLoss);
+        Assert.Equal(9_700m, item.ConfirmedCostProfitAndLoss);
+        Assert.Equal(9_600m, item.EstimatedNetProfitAndLoss);
+        Assert.Equal(0.02m, item.CostToRRatio);
+        Assert.Equal(50, item.PartialExitQuantity);
+        Assert.Equal(PartialExitStatus.Candidate, item.PartialExitStatus);
+        Assert.Equal(ReconciliationStatus.Clear, item.ReconciliationStatus);
+    }
+
+    [Fact]
+    public async Task Load_MarksEvaluationStaleAndRemovesExitSuggestion_AfterUserConfirmedPartialClose()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+        var opening = await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 1000m, 100, "JPY", Utc(2), true, []));
+        await fixture.AddPositionEvaluationAsync(
+            opening.PositionId,
+            PositionEvaluationOutcome.Evaluated,
+            ExitDecision.TakeProfit,
+            currentQuantity: 100m,
+            pricePnl: 0m,
+            confirmedCostPnl: 0m,
+            estimatedNetPnl: 0m,
+            costToRRatio: 0m,
+            partialExitQuantity: 50,
+            partialExitStatus: PartialExitStatus.Candidate);
+        var lot = Assert.Single(Assert.Single((await service.LoadAsync()).Positions).Lots);
+
+        await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, opening.PositionId, null, PositionSide.Long, ExecutionKind.Close,
+            Utc(4), 1050m, 40, "JPY", Utc(5), true,
+            [new ManualLotAllocation(lot.MarginLotId, 40)]));
+
+        var item = Assert.Single((await service.LoadAsync()).Positions);
+
+        Assert.Equal(60m, item.Quantity);
+        Assert.Equal(PositionEvaluationOutcome.Evaluated, item.EvaluationOutcome);
+        Assert.True(item.IsEvaluationStale);
+        Assert.Null(item.Decision);
+        Assert.Contains("参考表示", item.DecisionReason, StringComparison.Ordinal);
+        Assert.Equal(PartialExitStatus.Candidate, item.PartialExitStatus);
+    }
+
+    [Fact]
+    public async Task Load_ProjectsReconciliationRequiredEvaluation_FailClosed()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+        var opening = await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 1000m, 100, "JPY", Utc(2), true, []));
+        await fixture.AddPositionEvaluationAsync(
+            opening.PositionId,
+            PositionEvaluationOutcome.ReconciliationRequired,
+            null,
+            currentQuantity: null,
+            pricePnl: null,
+            confirmedCostPnl: null,
+            estimatedNetPnl: null,
+            costToRRatio: null,
+            partialExitQuantity: null,
+            partialExitStatus: PartialExitStatus.NotApplicable);
+
+        var item = Assert.Single((await service.LoadAsync()).Positions);
+
+        Assert.Equal(PositionEvaluationOutcome.ReconciliationRequired, item.EvaluationOutcome);
+        Assert.False(item.IsEvaluationStale);
+        Assert.Null(item.Decision);
+        Assert.Equal(ReconciliationStatus.Required, item.ReconciliationStatus);
+    }
+
+    private static async Task<WorkspaceGraphCounts> ReadGraphCountsAsync(DbContextOptions<SwingAdviserDbContext> options)
+    {
+        await using var context = new SwingAdviserDbContext(options);
+        return new WorkspaceGraphCounts(
+            await context.Set<PositionRow>().CountAsync(),
+            await context.Set<TradeExecutionRow>().CountAsync(),
+            await context.Set<TradeExecutionRevisionRow>().CountAsync(),
+            await context.Set<MarginLotRow>().CountAsync(),
+            await context.Set<LotAllocationRevisionRow>().CountAsync(),
+            await context.Set<RiskPlanRevisionRow>().CountAsync(),
+            await context.Set<PositionEvaluationRow>().CountAsync());
+    }
+
+    private sealed record WorkspaceGraphCounts(
+        int Positions,
+        int Executions,
+        int ExecutionRevisions,
+        int Lots,
+        int Allocations,
+        int RiskPlans,
+        int Evaluations);
+
     private static DateTimeOffset Utc(int hour) =>
         new(2026, 8, 26, hour, 0, 0, TimeSpan.Zero);
 
@@ -514,6 +641,117 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
             await using var context = new SwingAdviserDbContext(Options);
             await AddAtrAnalysisAsync(context, InstrumentId, evaluationDate, analyzedAtUtc, atr, side, false);
         }
+
+        public async Task AddPositionEvaluationAsync(
+            Guid positionId,
+            PositionEvaluationOutcome outcome,
+            ExitDecision? decision,
+            decimal? currentQuantity,
+            decimal? pricePnl,
+            decimal? confirmedCostPnl,
+            decimal? estimatedNetPnl,
+            decimal? costToRRatio,
+            long? partialExitQuantity,
+            PartialExitStatus partialExitStatus)
+        {
+            await using var context = new SwingAdviserDbContext(Options);
+            var analysisManifest = await context.Set<AnalysisInputManifestRow>()
+                .SingleAsync(x => x.Id == ManifestId);
+            var priceRevisionId = await context.Set<PriceRevisionSetChangeRow>()
+                .Where(x => x.PriceRevisionSetId == analysisManifest.PriceRevisionSetId)
+                .Select(x => x.DailyPriceRevisionId)
+                .SingleAsync() ?? throw new InvalidOperationException("The analysis manifest has no selected price revision.");
+            var lotIds = await context.Set<MarginLotRow>()
+                .Where(x => x.PositionId == positionId)
+                .Select(x => x.Id)
+                .ToListAsync();
+            var riskPlanIds = await context.Set<RiskPlanRevisionRow>()
+                .Where(x => context.Set<RiskBasisSnapshotRow>()
+                    .Where(basis => lotIds.Contains(basis.MarginLotId))
+                    .Select(basis => basis.Id)
+                    .Contains(x.RiskBasisSnapshotId))
+                .Select(x => x.Id)
+                .ToListAsync();
+            var manifestId = Guid.NewGuid();
+            context.Add(new PositionEvaluationInputManifestRow
+            {
+                Id = manifestId,
+                AnalysisRunId = analysisManifest.AnalysisRunId,
+                PositionId = positionId,
+                AnalysisInputManifestId = analysisManifest.Id,
+                CurrentPriceRevisionId = priceRevisionId,
+                TradeExecutionRevisionIdsJson = "[]",
+                LotAllocationRevisionIdsJson = "[]",
+                PositionAdjustmentIdsJson = "[]",
+                ContractRevisionIdsJson = "[]",
+                RiskBasisSnapshotIdsJson = "[]",
+                RiskPlanRevisionIdsJson = ExactIdsJson(riskPlanIds),
+                MarginCostObservationIdsJson = "[]",
+                ProjectionVersion = "test",
+                RecordedCutoffAtUtc = Utc(6),
+                ManifestSha256 = new string('f', 64),
+                CreatedAtUtc = Utc(6),
+            });
+            context.Add(new PositionEvaluationRow
+            {
+                Id = Guid.NewGuid(),
+                AnalysisRunId = analysisManifest.AnalysisRunId,
+                PositionId = positionId,
+                PositionEvaluationInputManifestId = manifestId,
+                EvaluationBarDate = new DateOnly(2026, 8, 25),
+                EvaluationOutcome = outcome.ToString(),
+                ExitDecision = decision?.ToString(),
+                ReasonSummary = "保有再評価のテスト結果です。",
+                ReasonsJson = "[]",
+                LotEvaluationsJson = "[]",
+                CurrentQuantity = currentQuantity,
+                PricePnl = pricePnl,
+                ConfirmedCostPnl = confirmedCostPnl,
+                EstimatedNetPnl = estimatedNetPnl,
+                CostToRRatio = costToRRatio,
+                PartialExitQuantity = partialExitQuantity,
+                PartialExitStatus = partialExitStatus.ToString(),
+                CreatedAtUtc = Utc(6),
+            });
+            await context.SaveChangesAsync();
+        }
+
+        public async Task AddUnlinkedLaterPriceAsync(decimal close)
+        {
+            await using var context = new SwingAdviserDbContext(Options);
+            var dailyPriceId = Guid.NewGuid();
+            context.Add(new DailyPriceRow
+            {
+                Id = dailyPriceId,
+                InstrumentId = InstrumentId,
+                BarDate = new DateOnly(2026, 8, 26),
+                Provider = "LaterPrice",
+                CreatedAtUtc = Utc(7),
+            });
+            context.Add(new DailyPriceRevisionRow
+            {
+                Id = Guid.NewGuid(),
+                RevisionNo = 1,
+                ContentSha256 = new string('e', 64),
+                AvailableAtUtc = Utc(7),
+                AvailabilityStatus = "Known",
+                FirstObservedAtUtc = Utc(7),
+                RecordedAtUtc = Utc(7),
+                DailyPriceId = dailyPriceId,
+                ProviderSymbol = "7203.T",
+                Open = close,
+                High = close,
+                Low = close,
+                Close = close,
+                Volume = 1000,
+                Currency = "JPY",
+                BarStatus = BarStatus.Confirmed.ToString(),
+            });
+            await context.SaveChangesAsync();
+        }
+
+        private static string ExactIdsJson(IEnumerable<Guid> ids) =>
+            $"{{\"schemaVersion\":\"position-evaluation-exact-id-list-v1\",\"ids\":[{string.Join(',', ids.Select(id => $"\"{id:D}\""))}]}}";
 
         private static async Task<(Guid StrategyId, Guid ManifestId, Guid CandidateId)> AddAtrAnalysisAsync(
             SwingAdviserDbContext context,

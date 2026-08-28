@@ -109,14 +109,20 @@
                         </DataGridTemplateColumn>
                         <DataGridTextColumn Width="90" Binding="{Binding QuantityText}" Header="数量" />
                         <DataGridTextColumn Width="115" Binding="{Binding EntryPriceText}" Header="エントリー時価格" />
-                        <DataGridTextColumn Width="120" Binding="{Binding CurrentPriceText}" Header="現在価格（参考）" />
+                        <DataGridTextColumn Width="175" Binding="{Binding CurrentPriceText}" Header="参照価格（再評価時／未評価時は最新）" />
                         <DataGridTextColumn Width="105" Binding="{Binding PriceProfitAndLossText}" Header="価格損益" />
                         <DataGridTextColumn Width="115" Binding="{Binding EvaluationBarDateText}" Header="判定基準バー日" />
+                        <DataGridTextColumn Width="135" Binding="{Binding EvaluationCreatedAtText}" Header="再評価日時" />
+                        <DataGridTextColumn Width="150" Binding="{Binding EvaluationStatusText}" Header="再評価状態" />
                         <DataGridTextColumn Width="140" Binding="{Binding StrategyLabel}" Header="適用戦略" />
                         <DataGridTextColumn Width="140" Binding="{Binding DecisionLabel}" Header="決済判定" />
                         <DataGridTextColumn Width="250" Binding="{Binding DecisionReason}" Header="主な判定理由" />
                         <DataGridTextColumn Width="105" Binding="{Binding StopPriceText}" Header="損切候補" />
                         <DataGridTextColumn Width="105" Binding="{Binding TakeProfitPriceText}" Header="利確候補" />
+                        <DataGridTextColumn Width="130" Binding="{Binding PartialExitText}" Header="一部利確候補" />
+                        <DataGridTextColumn Width="130" Binding="{Binding ConfirmedCostProfitAndLossText}" Header="確定コスト後損益" />
+                        <DataGridTextColumn Width="130" Binding="{Binding EstimatedNetProfitAndLossText}" Header="ネット参考損益" />
+                        <DataGridTextColumn Width="95" Binding="{Binding CostToRRatioText}" Header="コスト/R比" />
                         <DataGridTextColumn Width="150" Binding="{Binding TermText}" Header="返済期限" />
                         <DataGridTextColumn Width="160" Binding="{Binding ReconciliationText}" Header="要照合状態" />
                         <DataGridTemplateColumn Width="130" Header="操作">

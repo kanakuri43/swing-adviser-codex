@@ -31,15 +31,26 @@ public sealed class PositionRowViewModel(PositionListItem item)
     public string CurrentPriceText => TradingDisplayLabels.FormatYen(Item.CurrentPrice);
     public string PriceProfitAndLossText => TradingDisplayLabels.FormatYen(Item.PriceProfitAndLoss);
     public string EvaluationBarDateText => Item.EvaluationBarDate?.ToString("yyyy-MM-dd") ?? "未評価";
+    public string EvaluationCreatedAtText => Item.EvaluationCreatedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—";
+    public string EvaluationStatusText => TradingDisplayLabels.EvaluationOutcomeLabel(Item.EvaluationOutcome, Item.IsEvaluationStale);
     public string StrategyLabel => Item.StrategyLabel;
     public string DecisionLabel => TradingDisplayLabels.DecisionLabel(Item.Decision);
     public string DecisionReason => Item.DecisionReason;
+    public string ConfirmedCostProfitAndLossText => TradingDisplayLabels.FormatYen(Item.ConfirmedCostProfitAndLoss);
+    public string EstimatedNetProfitAndLossText => TradingDisplayLabels.FormatYen(Item.EstimatedNetProfitAndLoss);
+    public string CostToRRatioText => TradingDisplayLabels.FormatRiskRatio(Item.CostToRRatio);
+    public string PartialExitText => TradingDisplayLabels.PartialExitLabel(
+        Item.PartialExitStatus,
+        Item.PartialExitQuantity,
+        Item.IsEvaluationStale);
     public string StopPriceText => TradingDisplayLabels.FormatYen(Item.StopPrice);
     public string TakeProfitPriceText => TradingDisplayLabels.FormatYen(Item.TakeProfitPrice);
     public string TermText => TradingDisplayLabels.TermLabel(Item.TermType, Item.FinalRepaymentAtUtc);
     public string ReconciliationText => TradingDisplayLabels.ReconciliationLabel(Item.ReconciliationStatus);
     public bool IsExitActionable =>
         Item.ReconciliationStatus is ReconciliationStatus.Clear or ReconciliationStatus.Resolved &&
+        Item.EvaluationOutcome == PositionEvaluationOutcome.Evaluated &&
+        !Item.IsEvaluationStale &&
         Item.Lots.Count != 0 &&
         Item.Decision is ExitDecision.TakeProfit or ExitDecision.StopLoss or ExitDecision.Exit;
 }

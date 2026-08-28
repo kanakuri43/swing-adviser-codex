@@ -776,6 +776,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
         var adjustments = await context.Set<PositionAdjustmentRow>().AsNoTracking().ToListAsync(cancellationToken);
         var contracts = await context.Set<MarginLotContractRevisionRow>().AsNoTracking().ToListAsync(cancellationToken);
         var evaluations = await context.Set<PositionEvaluationRow>().AsNoTracking().ToListAsync(cancellationToken);
+        var evaluationManifests = await context.Set<PositionEvaluationInputManifestRow>().AsNoTracking().ToListAsync(cancellationToken);
         var riskBases = await context.Set<RiskBasisSnapshotRow>().AsNoTracking().ToListAsync(cancellationToken);
         var riskPlans = await context.Set<RiskPlanRevisionRow>().AsNoTracking().ToListAsync(cancellationToken);
         var prices = await context.Set<DailyPriceRow>().AsNoTracking().ToListAsync(cancellationToken);
@@ -783,6 +784,9 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
         var strategies = await context.Set<StrategyParameterSnapshotRow>().AsNoTracking().ToListAsync(cancellationToken);
         var strategyById = strategies.ToDictionary(x => x.Id);
         var executionById = executions.ToDictionary(x => x.Id);
+        var evaluationManifestById = evaluationManifests.ToDictionary(x => x.Id);
+        var priceById = prices.ToDictionary(x => x.Id);
+        var priceRevisionById = priceRevisions.ToDictionary(x => x.Id);
 
         var result = new List<PositionListItem>();
         foreach (var position in positions)
@@ -803,6 +807,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
             DateTimeOffset? finalRepayment = null;
             decimal? stopPrice = null;
             decimal? takeProfitPrice = null;
+            var currentRiskPlanIds = new HashSet<Guid>();
 
             foreach (var lot in lots.Where(x => x.PositionId == position.Id))
             {
@@ -892,6 +897,11 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                 {
                     var plan = Leaf(riskPlans.Where(x => x.RiskBasisSnapshotId == basis.Id), x => x.Id, x => x.SupersedesId)
                         .SingleOrDefault();
+                    if (plan is not null)
+                    {
+                        currentRiskPlanIds.Add(plan.Id);
+                    }
+
                     stopPrice ??= plan?.StopPrice ?? basis.InitialStopPrice;
                     takeProfitPrice ??= plan?.TakeProfitPrice ?? basis.InitialTakeProfitPrice;
                 }
@@ -910,6 +920,39 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                     .Where(x => x.BarStatus != BarStatus.Invalid.ToString())
                     .Select(x => (decimal?)x.Close)
                     .SingleOrDefault();
+            var evaluationManifest = evaluation is not null
+                ? evaluationManifestById.GetValueOrDefault(evaluation.PositionEvaluationInputManifestId)
+                : null;
+            var hasExactEvaluationPrice = TryGetEvaluationPrice(
+                evaluation,
+                evaluationManifest,
+                position.InstrumentId,
+                priceById,
+                priceRevisionById,
+                out var evaluationPrice);
+            var evaluationOutcome = evaluation is null
+                ? (PositionEvaluationOutcome?)null
+                : ParseEvaluationOutcome(evaluation.EvaluationOutcome);
+            var isEvaluationStale = evaluation is not null &&
+                (!hasExactEvaluationPrice ||
+                 evaluationManifest is null ||
+                 evaluationManifest.AnalysisRunId != evaluation.AnalysisRunId ||
+                 evaluationManifest.PositionId != position.Id ||
+                 (evaluation.CurrentQuantity is not null && evaluation.CurrentQuantity != totalQuantity) ||
+                 !MatchesRiskPlanSnapshot(evaluationManifest.RiskPlanRevisionIdsJson, currentRiskPlanIds));
+            if (evaluationOutcome == PositionEvaluationOutcome.ReconciliationRequired)
+            {
+                projectedReconciliationStatus = ReconciliationStatus.Required;
+            }
+
+            var presentedDecision = !isEvaluationStale && evaluationOutcome == PositionEvaluationOutcome.Evaluated
+                ? ParseEvaluationDecision(evaluation?.ExitDecision)
+                : null;
+            var decisionReason = evaluation is null
+                ? "保有再評価結果なし"
+                : isEvaluationStale
+                    ? $"評価後に保有数量・リスク計画または評価時価格が変わったため、再評価結果は参考表示です。{evaluation.ReasonSummary}"
+                    : evaluation.ReasonSummary;
             var strategyLabel = position.StrategyParameterSnapshotId is { } strategyId && strategyById.TryGetValue(strategyId, out var strategy)
                 ? $"{strategy.StrategyKey} {strategy.StrategyVersion}"
                 : "手動登録";
@@ -922,12 +965,20 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                 Parse<PositionSide>(position.PositionSide),
                 totalQuantity,
                 totalQuantity > 0 ? weightedBasis / totalQuantity : null,
-                latestPrice,
+                evaluation is null ? latestPrice : evaluationPrice,
                 evaluation?.EvaluationBarDate,
+                evaluationOutcome,
+                evaluation?.CreatedAtUtc,
+                isEvaluationStale,
                 strategyLabel,
-                ParseNullable<ExitDecision>(evaluation?.ExitDecision),
-                evaluation?.ReasonSummary ?? "保有再評価結果なし",
+                presentedDecision,
+                decisionReason,
                 evaluation?.PricePnl,
+                evaluation?.ConfirmedCostPnl,
+                evaluation?.EstimatedNetPnl,
+                evaluation?.CostToRRatio,
+                evaluation?.PartialExitQuantity,
+                evaluation is null ? null : ParsePartialExitStatus(evaluation.PartialExitStatus),
                 stopPrice,
                 takeProfitPrice,
                 termType,
@@ -1357,6 +1408,87 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
 
     private static T? ParseNullable<T>(string? value) where T : struct, Enum =>
         string.IsNullOrWhiteSpace(value) ? null : Parse<T>(value);
+
+    private static PositionEvaluationOutcome ParseEvaluationOutcome(string value) =>
+        Enum.TryParse<PositionEvaluationOutcome>(value, out var outcome)
+            ? outcome
+            : PositionEvaluationOutcome.Failed;
+
+    private static ExitDecision? ParseEvaluationDecision(string? value) =>
+        Enum.TryParse<ExitDecision>(value, out var decision) ? decision : null;
+
+    private static PartialExitStatus ParsePartialExitStatus(string value) =>
+        Enum.TryParse<PartialExitStatus>(value, out var status) ? status : PartialExitStatus.NotApplicable;
+
+    private static bool TryGetEvaluationPrice(
+        PositionEvaluationRow? evaluation,
+        PositionEvaluationInputManifestRow? manifest,
+        Guid instrumentId,
+        IReadOnlyDictionary<Guid, DailyPriceRow> prices,
+        IReadOnlyDictionary<Guid, DailyPriceRevisionRow> priceRevisions,
+        out decimal? price)
+    {
+        price = null;
+        if (evaluation is null || manifest is null ||
+            !priceRevisions.TryGetValue(manifest.CurrentPriceRevisionId, out var revision) ||
+            !prices.TryGetValue(revision.DailyPriceId, out var dailyPrice) ||
+            dailyPrice.InstrumentId != instrumentId ||
+            dailyPrice.BarDate != evaluation.EvaluationBarDate ||
+            revision.BarStatus == BarStatus.Invalid.ToString())
+        {
+            return false;
+        }
+
+        price = revision.Close;
+        return true;
+    }
+
+    private static bool MatchesRiskPlanSnapshot(string manifestJson, HashSet<Guid> currentRiskPlanIds)
+    {
+        var snapshotIds = TryReadExactIds(manifestJson);
+        return snapshotIds is not null && snapshotIds.SetEquals(currentRiskPlanIds);
+    }
+
+    private static HashSet<Guid>? TryReadExactIds(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            JsonElement idsElement;
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                idsElement = root;
+            }
+            else if (root.ValueKind == JsonValueKind.Object &&
+                     root.TryGetProperty("schemaVersion", out var schemaVersion) &&
+                     schemaVersion.GetString() == "position-evaluation-exact-id-list-v1" &&
+                     root.TryGetProperty("ids", out var ids) &&
+                     ids.ValueKind == JsonValueKind.Array)
+            {
+                idsElement = ids;
+            }
+            else
+            {
+                return null;
+            }
+
+            var result = new HashSet<Guid>();
+            foreach (var item in idsElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String || !Guid.TryParse(item.GetString(), out var id) || !result.Add(id))
+                {
+                    return null;
+                }
+            }
+
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static string Hash(object value)
     {

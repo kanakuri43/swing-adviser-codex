@@ -250,7 +250,10 @@ public static class DevelopmentDataSeeder
             ExitDecision = ExitDecision.TakeProfit.ToString(),
             ReasonSummary = "1.5R到達を想定したローカル結合テスト用の利確候補",
             ReasonsJson = "[\"development seed only\"]", LotEvaluationsJson = "[]", CurrentQuantity = 200m,
-            PricePnl = (seed.Close - 2780m) * 200m, ConfirmedCostPnl = null, EstimatedNetPnl = null,
+            PricePnl = (seed.Close - 2780m) * 200m,
+            ConfirmedCostPnl = (seed.Close - 2780m) * 200m - 300m,
+            EstimatedNetPnl = (seed.Close - 2780m) * 200m - 400m,
+            CostToRRatio = 0.05m,
             PartialExitQuantity = 100, PartialExitStatus = PartialExitStatus.Candidate.ToString(), CreatedAtUtc = SeedInstant,
         });
         await context.SaveChangesAsync(cancellationToken);

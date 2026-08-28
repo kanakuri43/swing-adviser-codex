@@ -19,6 +19,7 @@ public sealed partial class PositionEvaluationProjectionRepositoryTests
             .BuildAsync(scenario.RunId, scenario.PositionId);
         var evaluation = CreateEvaluatedResult(projection);
         var repository = new PositionEvaluationRepository(database.Context);
+        var executionCountBefore = await database.Context.Set<TradeExecutionRow>().CountAsync();
 
         var saved = await repository.SaveAsync(
             projection,
@@ -53,6 +54,7 @@ public sealed partial class PositionEvaluationProjectionRepositoryTests
         Assert.Equal(PositionEvaluationRepository.LotEvaluationsSchemaVersion,
             JsonSchemaVersion(evaluationRow.LotEvaluationsJson));
         Assert.Equal(PositionEvaluationOutcome.Evaluated.ToString(), evaluationRow.EvaluationOutcome);
+        Assert.Equal(executionCountBefore, await freshContext.Set<TradeExecutionRow>().CountAsync());
     }
 
     [Fact]

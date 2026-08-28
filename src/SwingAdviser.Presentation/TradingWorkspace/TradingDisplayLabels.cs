@@ -98,6 +98,39 @@ public static class TradingDisplayLabels
         _ => decision.ToString()!,
     };
 
+    public static string EvaluationOutcomeLabel(PositionEvaluationOutcome? outcome, bool isStale)
+    {
+        if (isStale)
+        {
+            return "再評価結果が古い（参考）";
+        }
+
+        return outcome switch
+        {
+            null => "未評価",
+            PositionEvaluationOutcome.Evaluated => "評価済み",
+            PositionEvaluationOutcome.InsufficientHistory => "評価不能（履歴不足）",
+            PositionEvaluationOutcome.HistoryIncomplete => "評価不能（履歴欠損）",
+            PositionEvaluationOutcome.InvalidData => "評価不能（データ不整合）",
+            PositionEvaluationOutcome.PointInTimeUnverified => "評価不能（PIT未検証）",
+            PositionEvaluationOutcome.ReconciliationRequired => "要照合（再評価停止）",
+            PositionEvaluationOutcome.IncompletePositionData => "評価不能（保有情報不足）",
+            PositionEvaluationOutcome.IntradaySequenceUnknown => "評価不能（日中順序不明）",
+            PositionEvaluationOutcome.Failed => "再評価失敗",
+            _ => outcome.ToString()!,
+        };
+    }
+
+    public static string PartialExitLabel(PartialExitStatus? status, long? quantity, bool isStale) => status switch
+    {
+        PartialExitStatus.Candidate when isStale => "一部利確候補（古い参考）",
+        PartialExitStatus.Candidate when quantity is not null => $"一部利確候補 {quantity.Value:#,0}株",
+        PartialExitStatus.Candidate => "一部利確候補（数量確認）",
+        PartialExitStatus.NotFeasible => "一部利確不可（単元未満）",
+        PartialExitStatus.NotApplicable => "対象外",
+        _ => "算出不可",
+    };
+
     public static string ReconciliationLabel(ReconciliationStatus status) => status switch
     {
         ReconciliationStatus.Clear => "照合済み",
@@ -126,4 +159,5 @@ public static class TradingDisplayLabels
 
     public static string FormatYen(decimal amount) => amount.ToString("¥#,##0.##;−¥#,##0.##", Ja);
     public static string FormatYen(decimal? amount) => amount is null ? "算出不可" : FormatYen(amount.Value);
+    public static string FormatRiskRatio(decimal? value) => value is null ? "算出不可" : $"{value.Value:0.####}R";
 }
