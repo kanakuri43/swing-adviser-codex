@@ -131,6 +131,8 @@ ATR損切・利確ラインは価格ベースの説明可能なルールとし�
 
 証券会社明細の確定額を正とし、アプリ計算値は見積として明確に区別する。逆日歩の未公表・取得不能、契約料率不明を0円扱いしない。価格損益、確定コスト控除後損益、見積を含むネット参考損益、コスト/R比を分けて表示し、コスト増大を保有見直し理由にできるようにするが、自動決済や約定生成は行わない。
 
+`lot-profit-and-loss-v1`は現在基準のlot数量を`q`、entry/currentの1株価格を`E`/`P`、建玉時の1株リスクを`R`として、Longの価格損益を`(P - E) * q`、Shortを`(E - P) * q`で求める。Chargeを正、Creditを負とするnet costを価格損益から控除し、cost/Rは`net cost / (R * q)`とする。確定コスト控除後損益は全logical itemに解決済みConfirmed leafがある場合だけ算出する。ネット参考損益とcost/Rはitemごとに解決済みConfirmedを優先し、Confirmedが`Unpublished`/`FetchFailed`/`Unknown`ならEstimateへフォールバックする。同じitemのEstimateとConfirmedは同時加算しない。空のコスト集合、選択leaf欠落、未解決状態、通貨・株式単位不一致は0として扱わず、金額と比率をnull相当の型付き欠損にする。`KnownZero`、`NotOccurred`、`NotApplicable`は解決済み0効果として区別したまま保持する。
+
 返済期限はMarginLotごとの証券会社確認値を使い、未決済lotの最短期限と残営業日をポジションへ集約表示する。警告閾値の初期値は30/10/5/1営業日前とし設定化する。期限不明、期限変更、期限接近、期限超過を別状態にし、警告だけで決済済みにしない。
 
 保有画面での表示要件（適用戦略・損切候補・利確候補・HOLD 理由など）は [`product-spec.md`](./product-spec.md) の Positions を参照。
