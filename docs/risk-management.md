@@ -92,6 +92,8 @@ Non-negotiable rules・優先順位は AGENT.md 側が正であり、本ファ�
 
 新しい損切候補は Long なら `max(従来候補, entry_basis_price)`、Short なら `min(従来候補, entry_basis_price)` とし、従来より不利な方向へ緩めない。これは「建値候補（コスト未調整）」であり、手数料、金利、貸株料、逆日歩、配当相当額、スリッページを含む損益ゼロを保証しない旨をUIに明示する。
 
+4.1.7ではこの遷移をDomainの`PartialExitBreakevenPlanFactory`（`partial-exit-breakeven-plan-factory-v1`）へ実装する。利用者確認済みCloseのcurrent effective revisionと、そのexact revisionを参照する同一lotのunsuperseded `Effective` allocationがあり、今回のallocation直前数量より決済数量が小さい場合だけ、active risk-plan leafを直接supersedeする`PartialExitBreakeven` revisionを手動Close登録transaction内で追記する。新revisionのeffective時刻はClose約定時刻、recorded時刻はClose・allocation・旧planの全証跡以後とし、triggerにはlogical execution IDとexact allocation revision IDを保存する。全決済、価格到達だけ、別lot、superseded/voided Close、欠落・分岐したbasis/planでは追記しない。旧plan、約定、allocation、保有数量は上書きしない。
+
 候補数量は `floor(現在数量 * 0.50 / 売買単位) * 売買単位` とし、残りも最低1売買単位を満たす場合だけ提示する。厳密に50%へできない場合は実効割合を併記し、分割不能なら `PartialExitNotFeasible` とする。全決済候補へ暗黙変換しない。
 
 ### ATR calculation and reference date

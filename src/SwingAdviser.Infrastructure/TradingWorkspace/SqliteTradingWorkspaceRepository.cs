@@ -46,6 +46,8 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
         var riskInput = request.Kind == ExecutionKind.Open
             ? await ResolveInitialRiskInputAsync(context, request, cancellationToken)
             : null;
+        IReadOnlyDictionary<Guid, LotCloseProjection> lotProjectionsBeforeClose =
+            new Dictionary<Guid, LotCloseProjection>();
 
         var now = DateTimeOffset.UtcNow;
         var positionId = request.PositionId ?? Guid.NewGuid();
@@ -105,7 +107,11 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                 throw new InvalidOperationException("Lot allocation is unavailable while the position requires reconciliation.");
             }
 
-            await ValidateLotAllocationsAsync(context, positionId, request.LotAllocations, cancellationToken);
+            lotProjectionsBeforeClose = await ValidateLotAllocationsAsync(
+                context,
+                positionId,
+                request.LotAllocations,
+                cancellationToken);
         }
 
         var executionId = Guid.NewGuid();
@@ -196,6 +202,38 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
         }
         else
         {
+            var persistedPosition = await context.Set<PositionRow>()
+                .SingleAsync(x => x.Id == positionId, cancellationToken);
+            var domainPosition = new Position(
+                new PositionId(persistedPosition.Id),
+                new InstrumentId(persistedPosition.InstrumentId),
+                Parse<PositionSide>(persistedPosition.PositionSide),
+                persistedPosition.StrategyParameterSnapshotId,
+                persistedPosition.OriginCandidateResultId is { } candidateId
+                    ? new CandidateResultId(candidateId)
+                    : null,
+                persistedPosition.CreatedAtUtc);
+            var domainClose = domainPosition.RegisterUserConfirmedExecution(
+                new TradeExecutionId(executionId),
+                ExecutionKind.Close,
+                new UserConfirmedExecutionInput(
+                    request.ExecutedAtUtc,
+                    new PositivePrice(request.Price),
+                    new WholeShareQuantity(request.Quantity),
+                    new CurrencyCode(request.Currency),
+                    request.UserConfirmedAtUtc,
+                    request.Broker,
+                    request.ExternalReference,
+                    request.UserNote),
+                new TradeExecutionRevisionId(revisionId),
+                new RevisionMetadata(
+                    revisionId,
+                    1,
+                    null,
+                    new Sha256Hash(revision.ContentSha256),
+                    now),
+                now);
+
             foreach (var allocation in request.LotAllocations)
             {
                 var row = new LotAllocationRevisionRow
@@ -221,6 +259,19 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                     row.RecordDisposition,
                 });
                 context.Add(row);
+
+                var projectionBeforeClose = lotProjectionsBeforeClose[allocation.MarginLotId];
+                if (allocation.Quantity < projectionBeforeClose.Quantity)
+                {
+                    await AddPartialExitBreakevenPlanAsync(
+                        context,
+                        domainPosition,
+                        domainClose,
+                        row,
+                        projectionBeforeClose,
+                        now,
+                        cancellationToken);
+                }
             }
         }
 
@@ -888,7 +939,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
         return result.OrderBy(x => x.Code).ThenBy(x => x.Side).ToList();
     }
 
-    private static async Task ValidateLotAllocationsAsync(
+    private static async Task<IReadOnlyDictionary<Guid, LotCloseProjection>> ValidateLotAllocationsAsync(
         SwingAdviserDbContext context,
         Guid positionId,
         IReadOnlyList<ManualLotAllocation> requested,
@@ -917,6 +968,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
             .Where(x => requestedIds.Contains(x.MarginLotId))
             .ToListAsync(cancellationToken);
 
+        var projectionsBeforeClose = new Dictionary<Guid, LotCloseProjection>();
         foreach (var item in requested)
         {
             var lot = lots.Single(x => x.Id == item.MarginLotId);
@@ -925,13 +977,175 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
             var alreadyAllocated = Leaf(allocations.Where(x => x.MarginLotId == lot.Id), x => x.Id, x => x.SupersedesId)
                 .Where(x => x.RecordDisposition == RecordDisposition.Effective.ToString())
                 .Sum(x => x.Quantity);
-            var currentQuantity = CurrentAdjustedQuantity(lot.Id, opening.Quantity, adjustments);
-            if (opening.RecordDisposition != RecordDisposition.Effective.ToString() || item.Quantity > currentQuantity - alreadyAllocated)
+            var currentProjection = CurrentAdjustedLot(
+                lot.Id,
+                opening.Quantity,
+                opening.Price,
+                adjustments);
+            var quantityBeforeClose = currentProjection.Quantity - alreadyAllocated;
+            if (opening.RecordDisposition != RecordDisposition.Effective.ToString() ||
+                item.Quantity > quantityBeforeClose)
             {
                 throw new InvalidOperationException("A lot allocation exceeds its current remaining quantity.");
             }
+
+            projectionsBeforeClose.Add(
+                item.MarginLotId,
+                new LotCloseProjection(quantityBeforeClose, currentProjection.EntryBasisPrice));
         }
+
+        return projectionsBeforeClose;
     }
+
+    private static async Task AddPartialExitBreakevenPlanAsync(
+        SwingAdviserDbContext context,
+        Position position,
+        TradeExecution closingExecution,
+        LotAllocationRevisionRow allocationRow,
+        LotCloseProjection lotProjectionBeforeClose,
+        DateTimeOffset recordedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var lotRow = await context.Set<MarginLotRow>()
+            .SingleAsync(x => x.Id == allocationRow.MarginLotId, cancellationToken);
+        var lot = MarginLot.Restore(
+            new MarginLotId(lotRow.Id),
+            new PositionId(lotRow.PositionId),
+            new TradeExecutionId(lotRow.OpeningTradeExecutionId),
+            new TradeExecutionRevisionId(lotRow.InitialOpeningTradeExecutionRevisionId),
+            lotRow.CreatedAtUtc);
+        var basisRows = await context.Set<RiskBasisSnapshotRow>()
+            .Where(x => x.MarginLotId == lotRow.Id)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        var basisRow = Leaf(basisRows, x => x.Id, x => x.SupersedesId).Single();
+        if (basisRow.PriceCurrency is null || basisRow.PriceUnitBasisSha256 is null)
+        {
+            throw new InvalidOperationException("The partial close requires a risk basis with a verified price unit.");
+        }
+
+        var riskBasis = RiskBasisSnapshot.Restore(
+            basisRow.Id,
+            new MarginLotId(basisRow.MarginLotId),
+            new TradeExecutionRevisionId(basisRow.OpeningTradeExecutionRevisionId),
+            position.Side,
+            new RiskPriceUnit(
+                position.InstrumentId,
+                new CurrencyCode(basisRow.PriceCurrency),
+                new Sha256Hash(basisRow.PriceUnitBasisSha256)),
+            new PositivePrice(basisRow.EntryBasisPrice),
+            basisRow.AtrReferenceBarDate,
+            new PositivePrice(basisRow.FixedAtr),
+            checked((int)basisRow.AtrPeriod),
+            basisRow.AtrAlgorithmId,
+            basisRow.StopMultiplier,
+            basisRow.RiskAmountR,
+            basisRow.PartialTakeProfitRMultiple,
+            basisRow.PartialTakeProfitFraction,
+            new PositivePrice(basisRow.InitialStopPrice),
+            new PositivePrice(basisRow.InitialTakeProfitPrice),
+            new Sha256Hash(basisRow.ContentSha256),
+            basisRow.CreatedAtUtc);
+        var planRows = await context.Set<RiskPlanRevisionRow>()
+            .Where(x => x.RiskBasisSnapshotId == basisRow.Id)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+        var predecessorRow = Leaf(planRows, x => x.Id, x => x.SupersedesId).Single();
+        var predecessor = RestoreRiskPlan(predecessorRow);
+        var allocation = LotAllocationRevision.RegisterUserConfirmed(
+            allocationRow.AllocationKey,
+            closingExecution,
+            lot,
+            new WholeShareQuantity(allocationRow.Quantity),
+            new RevisionMetadata(
+                allocationRow.Id,
+                checked((int)allocationRow.RevisionNo),
+                allocationRow.SupersedesId,
+                new Sha256Hash(allocationRow.ContentSha256),
+                allocationRow.RecordedAtUtc),
+            allocationRow.UserConfirmedAtUtc);
+        var nextId = Guid.NewGuid();
+        var nextRevisionNumber = checked(predecessor.Audit.RevisionNumber + 1);
+        var placeholderHash = new Sha256Hash(new string('0', 64));
+        var draft = PartialExitBreakevenPlanFactory.Create(
+            riskBasis,
+            predecessor,
+            lot,
+            closingExecution,
+            allocation,
+            new PositivePrice(lotProjectionBeforeClose.EntryBasisPrice),
+            lotProjectionBeforeClose.Quantity,
+            new RevisionMetadata(
+                nextId,
+                nextRevisionNumber,
+                predecessor.Audit.Id,
+                placeholderHash,
+                recordedAtUtc));
+        var contentHash = Hash(new
+        {
+            SchemaVersion = "risk-plan-revision-v1",
+            RiskBasisSnapshotId = riskBasis.Id,
+            StopPrice = draft.StopPrice.Value,
+            TakeProfitPrice = draft.TakeProfitPrice.Value,
+            TriggerTradeExecutionId = closingExecution.Id.Value,
+            TriggerLotAllocationRevisionId = allocation.Audit.Id,
+            TriggerPositionAdjustmentId = (Guid?)null,
+            PlanReason = RiskPlanReason.PartialExitBreakeven.ToString(),
+            EffectiveAtUtc = draft.EffectiveAtUtc,
+            IsCostAdjusted = false,
+        });
+        var plan = PartialExitBreakevenPlanFactory.Create(
+            riskBasis,
+            predecessor,
+            lot,
+            closingExecution,
+            allocation,
+            new PositivePrice(lotProjectionBeforeClose.EntryBasisPrice),
+            lotProjectionBeforeClose.Quantity,
+            new RevisionMetadata(
+                nextId,
+                nextRevisionNumber,
+                predecessor.Audit.Id,
+                new Sha256Hash(contentHash),
+                recordedAtUtc));
+
+        context.Add(new RiskPlanRevisionRow
+        {
+            Id = plan.Audit.Id,
+            RevisionNo = plan.Audit.RevisionNumber,
+            SupersedesId = plan.Audit.SupersedesId,
+            ContentSha256 = plan.Audit.ContentHash.Value,
+            RecordedAtUtc = plan.Audit.RecordedAtUtc,
+            RiskBasisSnapshotId = plan.RiskBasisSnapshotId,
+            StopPrice = plan.StopPrice.Value,
+            TakeProfitPrice = plan.TakeProfitPrice.Value,
+            TriggerTradeExecutionId = plan.TriggerTradeExecutionId?.Value,
+            TriggerLotAllocationRevisionId = plan.TriggerLotAllocationRevisionId,
+            TriggerPositionAdjustmentId = plan.TriggerPositionAdjustmentId,
+            PlanReason = plan.Reason.ToString(),
+            EffectiveAtUtc = plan.EffectiveAtUtc,
+            IsCostAdjusted = plan.IsCostAdjusted,
+        });
+    }
+
+    private static RiskPlanRevision RestoreRiskPlan(RiskPlanRevisionRow row) =>
+        new(
+            row.RiskBasisSnapshotId,
+            new RevisionMetadata(
+                row.Id,
+                checked((int)row.RevisionNo),
+                row.SupersedesId,
+                new Sha256Hash(row.ContentSha256),
+                row.RecordedAtUtc),
+            new PositivePrice(row.StopPrice),
+            new PositivePrice(row.TakeProfitPrice),
+            Parse<RiskPlanReason>(row.PlanReason),
+            row.EffectiveAtUtc,
+            row.TriggerTradeExecutionId is { } executionId
+                ? new TradeExecutionId(executionId)
+                : null,
+            row.TriggerLotAllocationRevisionId,
+            row.TriggerPositionAdjustmentId);
 
     private static async Task<bool> IsPositionFullyClosedAsync(
         SwingAdviserDbContext context,
@@ -967,9 +1181,17 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
     private static decimal CurrentAdjustedQuantity(
         Guid marginLotId,
         long openingQuantity,
+        IEnumerable<PositionAdjustmentRow> adjustments) =>
+        CurrentAdjustedLot(marginLotId, openingQuantity, 1m, adjustments).Quantity;
+
+    private static LotCloseProjection CurrentAdjustedLot(
+        Guid marginLotId,
+        long openingQuantity,
+        decimal openingBasisPrice,
         IEnumerable<PositionAdjustmentRow> adjustments)
     {
         var quantity = (decimal)openingQuantity;
+        var entryBasisPrice = openingBasisPrice;
         foreach (var adjustment in Leaf(
                      adjustments.Where(x => x.MarginLotId == marginLotId),
                      x => x.Id,
@@ -978,7 +1200,7 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
                  .ThenBy(x => x.RecordedAtUtc))
         {
             if (adjustment.Status == PositionAdjustmentStatus.ReconciliationRequired.ToString() ||
-                adjustment.AfterQuantity is null)
+                adjustment.AfterQuantity is null || adjustment.AfterBasisPrice is null)
             {
                 throw new InvalidOperationException("Lot allocation is unavailable while a corporate action requires reconciliation.");
             }
@@ -986,10 +1208,11 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
             if (adjustment.Status is nameof(PositionAdjustmentStatus.Applied) or nameof(PositionAdjustmentStatus.Resolved))
             {
                 quantity = adjustment.AfterQuantity.Value;
+                entryBasisPrice = adjustment.AfterBasisPrice.Value;
             }
         }
 
-        return quantity;
+        return new LotCloseProjection(quantity, entryBasisPrice);
     }
 
     private static async Task AppendPositionStateAsync(
@@ -1145,6 +1368,8 @@ public sealed class SqliteTradingWorkspaceRepository(DbContextOptions<SwingAdvis
     {
         public static InstrumentIdentity Unknown { get; } = new("コード不明", "銘柄名不明");
     }
+
+    private readonly record struct LotCloseProjection(decimal Quantity, decimal EntryBasisPrice);
 
     private sealed record InitialRiskInput(
         Guid? OriginCandidateResultId,

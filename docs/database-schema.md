@@ -898,7 +898,7 @@ New opening writes require both unit-identity fields. They remain physically nul
 | `effective_at_utc` | TEXT NOT NULL | Plan effective instant. |
 | `is_cost_adjusted` | INTEGER NOT NULL DEFAULT 0 | Must remain 0 for the defined price-based plan. |
 
-Unique: `(risk_basis_snapshot_id, revision_no)` and filtered unique `supersedes_id WHERE supersedes_id IS NOT NULL`. A DB `CHECK` requires `is_cost_adjusted = 0`. A mere 1.5R price touch cannot create `PartialExitBreakeven`; both trigger execution and exact unsuperseded `Effective` allocation revision are required. `CorporateActionConversion` requires an exact effective `trigger_position_adjustment_id` and the atomic before/after equality described in section 6.8. This derived plan uses `effective_at_utc` and does not carry source-availability fields.
+Unique: `(risk_basis_snapshot_id, revision_no)` and filtered unique `supersedes_id WHERE supersedes_id IS NOT NULL`. A DB `CHECK` requires `is_cost_adjusted = 0`. A mere 1.5R price touch cannot create `PartialExitBreakeven`; both trigger execution and exact unsuperseded `Effective` allocation revision are required. Manual partial-close registration appends this direct successor in the same transaction as the Close execution and allocation, derives `effective_at_utc` from the user-entered execution instant, preserves the prior target, and moves the stop only in the favorable direction toward the current-unit entry basis. A full close does not append a risk plan. `CorporateActionConversion` requires an exact effective `trigger_position_adjustment_id` and the atomic before/after equality described in section 6.8. This derived plan uses `effective_at_utc` and does not carry source-availability fields.
 
 ### 6.11 `position_evaluation_input_manifests`
 

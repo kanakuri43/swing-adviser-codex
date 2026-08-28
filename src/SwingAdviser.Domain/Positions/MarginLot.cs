@@ -48,6 +48,27 @@ public sealed record MarginLot
             openingExecution.CurrentRevision.Id,
             DomainGuard.Utc(createdAtUtc, nameof(createdAtUtc)));
     }
+
+    internal static MarginLot Restore(
+        MarginLotId id,
+        PositionId positionId,
+        TradeExecutionId openingExecutionId,
+        TradeExecutionRevisionId initialOpeningRevisionId,
+        DateTimeOffset createdAtUtc)
+    {
+        if (id.Value == Guid.Empty || positionId.Value == Guid.Empty ||
+            openingExecutionId.Value == Guid.Empty || initialOpeningRevisionId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Persisted margin-lot identifiers cannot be empty.");
+        }
+
+        return new MarginLot(
+            id,
+            positionId,
+            openingExecutionId,
+            initialOpeningRevisionId,
+            DomainGuard.Utc(createdAtUtc, nameof(createdAtUtc)));
+    }
 }
 
 public sealed record MarginLotContractRevision

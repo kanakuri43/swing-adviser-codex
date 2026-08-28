@@ -273,6 +273,72 @@ public sealed record RiskBasisSnapshot
             DomainGuard.Utc(createdAtUtc, nameof(createdAtUtc)));
     }
 
+    internal static RiskBasisSnapshot Restore(
+        Guid id,
+        MarginLotId marginLotId,
+        TradeExecutionRevisionId openingExecutionRevisionId,
+        PositionSide side,
+        RiskPriceUnit priceUnit,
+        PositivePrice entryBasisPrice,
+        DateOnly atrReferenceBarDate,
+        PositivePrice fixedAtr,
+        int atrPeriod,
+        string atrAlgorithmId,
+        decimal stopMultiplier,
+        decimal riskAmountR,
+        decimal partialTakeProfitRMultiple,
+        decimal partialTakeProfitFraction,
+        PositivePrice initialStopPrice,
+        PositivePrice initialTakeProfitPrice,
+        Sha256Hash contentHash,
+        DateTimeOffset createdAtUtc)
+    {
+        if (id == Guid.Empty || marginLotId.Value == Guid.Empty ||
+            openingExecutionRevisionId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Persisted risk-basis identifiers cannot be empty.");
+        }
+
+        if (!Enum.IsDefined(side))
+        {
+            throw new ArgumentOutOfRangeException(nameof(side));
+        }
+
+        DomainGuard.Positive(atrPeriod, nameof(atrPeriod));
+        DomainGuard.Positive(stopMultiplier, nameof(stopMultiplier));
+        DomainGuard.Positive(riskAmountR, nameof(riskAmountR));
+        DomainGuard.Positive(partialTakeProfitRMultiple, nameof(partialTakeProfitRMultiple));
+        if (partialTakeProfitFraction is <= 0m or >= 1m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(partialTakeProfitFraction));
+        }
+
+        if (string.IsNullOrWhiteSpace(contentHash.Value))
+        {
+            throw new ArgumentException("A persisted risk basis requires a content hash.", nameof(contentHash));
+        }
+
+        return new RiskBasisSnapshot(
+            id,
+            marginLotId,
+            openingExecutionRevisionId,
+            side,
+            priceUnit,
+            entryBasisPrice,
+            atrReferenceBarDate,
+            fixedAtr,
+            atrPeriod,
+            DomainGuard.Required(atrAlgorithmId, nameof(atrAlgorithmId)),
+            stopMultiplier,
+            riskAmountR,
+            partialTakeProfitRMultiple,
+            partialTakeProfitFraction,
+            initialStopPrice,
+            initialTakeProfitPrice,
+            contentHash,
+            DomainGuard.Utc(createdAtUtc, nameof(createdAtUtc)));
+    }
+
     internal RiskPlanRevision CreateInitialPlan(
         RevisionMetadata audit,
         DateTimeOffset effectiveAtUtc)

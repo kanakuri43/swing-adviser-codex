@@ -176,7 +176,7 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.RegisterManualExecutionAsync(invalid));
 
-        await service.RegisterManualExecutionAsync(invalid with
+        var closing = await service.RegisterManualExecutionAsync(invalid with
         {
             Quantity = 80,
             LotAllocations = [new ManualLotAllocation(lot.MarginLotId, 80)],
@@ -190,6 +190,22 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
         var allocation = Assert.Single(await context.Set<LotAllocationRevisionRow>().ToListAsync());
         Assert.Equal(lot.MarginLotId, allocation.MarginLotId);
         Assert.Equal(80, allocation.Quantity);
+        var plans = await context.Set<RiskPlanRevisionRow>()
+            .OrderBy(x => x.RevisionNo)
+            .ToListAsync();
+        Assert.Equal(2, plans.Count);
+        Assert.Equal(RiskPlanReason.Initial.ToString(), plans[0].PlanReason);
+        Assert.Equal(3050m, plans[0].StopPrice);
+        Assert.Equal(2925m, plans[0].TakeProfitPrice);
+        Assert.Equal(RiskPlanReason.PartialExitBreakeven.ToString(), plans[1].PlanReason);
+        Assert.Equal(2, plans[1].RevisionNo);
+        Assert.Equal(plans[0].Id, plans[1].SupersedesId);
+        Assert.Equal(3000m, plans[1].StopPrice);
+        Assert.Equal(plans[0].TakeProfitPrice, plans[1].TakeProfitPrice);
+        Assert.Equal(closing.ExecutionId, plans[1].TriggerTradeExecutionId);
+        Assert.Equal(allocation.Id, plans[1].TriggerLotAllocationRevisionId);
+        Assert.Equal(Utc(4), plans[1].EffectiveAtUtc);
+        Assert.False(plans[1].IsCostAdjusted);
     }
 
     [Fact]
@@ -219,7 +235,57 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
             .FirstAsync();
         Assert.Equal(PositionStatus.Closed.ToString(), state.Status);
         Assert.Equal(ReconciliationStatus.Required.ToString(), state.ReconciliationStatus);
+        Assert.Single(await context.Set<RiskPlanRevisionRow>().ToListAsync());
         Assert.Empty((await service.LoadAsync()).Positions);
+    }
+
+    [Fact]
+    public async Task InvalidBreakevenTransition_RollsBackCloseAllocationAndPlanTogether()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var service = new TradingWorkspaceService(new SqliteTradingWorkspaceRepository(fixture.Options));
+        await service.RegisterManualExecutionAsync(new RegisterManualExecutionRequest(
+            fixture.InstrumentId, null, null, PositionSide.Long, ExecutionKind.Open,
+            Utc(1), 1000m, 200, "JPY", Utc(2), true, []));
+        var position = Assert.Single((await service.LoadAsync()).Positions);
+        var lot = Assert.Single(position.Lots);
+
+        await using (var context = new SwingAdviserDbContext(fixture.Options))
+        {
+            var basis = Assert.Single(await context.Set<RiskBasisSnapshotRow>().ToListAsync());
+            var initial = Assert.Single(await context.Set<RiskPlanRevisionRow>().ToListAsync());
+            context.Add(new RiskPlanRevisionRow
+            {
+                Id = Guid.NewGuid(),
+                RevisionNo = 2,
+                SupersedesId = initial.Id,
+                ContentSha256 = new string('f', 64),
+                RecordedAtUtc = Utc(3),
+                RiskBasisSnapshotId = basis.Id,
+                StopPrice = 950m,
+                TakeProfitPrice = initial.TakeProfitPrice,
+                PlanReason = RiskPlanReason.UserCorrection.ToString(),
+                EffectiveAtUtc = Utc(6),
+                IsCostAdjusted = false,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await Assert.ThrowsAsync<DomainException>(() => service.RegisterManualExecutionAsync(
+            new RegisterManualExecutionRequest(
+                fixture.InstrumentId, position.PositionId, null, PositionSide.Long, ExecutionKind.Close,
+                Utc(4), 1100m, 80, "JPY", Utc(5), true,
+                [new ManualLotAllocation(lot.MarginLotId, 80)])));
+
+        await using var verification = new SwingAdviserDbContext(fixture.Options);
+        Assert.Single(await verification.Set<TradeExecutionRow>()
+            .Where(x => x.ExecutionKind == ExecutionKind.Open.ToString())
+            .ToListAsync());
+        Assert.Empty(await verification.Set<TradeExecutionRow>()
+            .Where(x => x.ExecutionKind == ExecutionKind.Close.ToString())
+            .ToListAsync());
+        Assert.Empty(await verification.Set<LotAllocationRevisionRow>().ToListAsync());
+        Assert.Equal(2, await verification.Set<RiskPlanRevisionRow>().CountAsync());
     }
 
     [Fact]
@@ -263,7 +329,7 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
                 RatioDenominator = 1,
                 PointInTimeStatus = PointInTimeStatus.Verified.ToString(),
             });
-            context.Add(new PositionAdjustmentRow
+            var adjustment = new PositionAdjustmentRow
             {
                 Id = Guid.NewGuid(),
                 AdjustmentKey = Guid.NewGuid(),
@@ -283,6 +349,24 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
                 ConfirmedAtUtc = Utc(3),
                 ContentSha256 = new string('d', 64),
                 RecordedAtUtc = Utc(3),
+            };
+            context.Add(adjustment);
+            var basis = Assert.Single(await context.Set<RiskBasisSnapshotRow>().ToListAsync());
+            var initialPlan = Assert.Single(await context.Set<RiskPlanRevisionRow>().ToListAsync());
+            context.Add(new RiskPlanRevisionRow
+            {
+                Id = Guid.NewGuid(),
+                RevisionNo = 2,
+                SupersedesId = initialPlan.Id,
+                ContentSha256 = new string('e', 64),
+                RecordedAtUtc = Utc(3),
+                RiskBasisSnapshotId = basis.Id,
+                StopPrice = 470m,
+                TakeProfitPrice = 545m,
+                TriggerPositionAdjustmentId = adjustment.Id,
+                PlanReason = RiskPlanReason.CorporateActionConversion.ToString(),
+                EffectiveAtUtc = Utc(3),
+                IsCostAdjusted = false,
             });
             await context.SaveChangesAsync();
         }
@@ -297,6 +381,15 @@ public sealed class SqliteTradingWorkspaceRepositoryTests
             Utc(4), 550m, 150, "JPY", Utc(5), true,
             [new ManualLotAllocation(lot.MarginLotId, 150)]));
         Assert.Equal(50m, Assert.Single((await service.LoadAsync()).Positions).Quantity);
+        await using var verification = new SwingAdviserDbContext(fixture.Options);
+        var plans = await verification.Set<RiskPlanRevisionRow>()
+            .OrderBy(x => x.RevisionNo)
+            .ToListAsync();
+        Assert.Equal(3, plans.Count);
+        Assert.Equal(500m, plans[2].StopPrice);
+        Assert.Equal(545m, plans[2].TakeProfitPrice);
+        Assert.Equal(plans[1].Id, plans[2].SupersedesId);
+        Assert.Equal(RiskPlanReason.PartialExitBreakeven.ToString(), plans[2].PlanReason);
     }
 
     private static DateTimeOffset Utc(int hour) =>
