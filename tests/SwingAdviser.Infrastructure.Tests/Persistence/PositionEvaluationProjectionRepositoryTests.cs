@@ -9,7 +9,7 @@ using SwingAdviser.Infrastructure.Persistence.Repositories;
 
 namespace SwingAdviser.Infrastructure.Tests.Persistence;
 
-public sealed class PositionEvaluationProjectionRepositoryTests
+public sealed partial class PositionEvaluationProjectionRepositoryTests
 {
     [Fact]
     public async Task Build_SelectsExactLotGraphAndProducesDeterministicCanonicalManifest()

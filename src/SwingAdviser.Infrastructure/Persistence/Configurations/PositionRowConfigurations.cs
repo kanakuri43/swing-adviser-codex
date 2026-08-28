@@ -289,9 +289,13 @@ internal sealed class PositionEvaluationRowConfiguration : IEntityTypeConfigurat
     {
         builder.ToTable("position_evaluations", table =>
         {
-            table.HasCheckConstraint("ck_position_evaluations_exit_decision", "exit_decision IN ('Hold', 'TakeProfit', 'StopLoss', 'Exit')");
+            table.HasCheckConstraint("ck_position_evaluations_outcome", "evaluation_outcome IN ('Evaluated', 'InsufficientHistory', 'HistoryIncomplete', 'InvalidData', 'PointInTimeUnverified', 'ReconciliationRequired', 'IncompletePositionData', 'IntradaySequenceUnknown', 'Failed')");
+            table.HasCheckConstraint("ck_position_evaluations_exit_decision", "exit_decision IS NULL OR exit_decision IN ('Hold', 'TakeProfit', 'StopLoss', 'Exit')");
+            table.HasCheckConstraint("ck_position_evaluations_outcome_decision", "(evaluation_outcome = 'Evaluated' AND exit_decision IS NOT NULL) OR (evaluation_outcome <> 'Evaluated' AND exit_decision IS NULL)");
+            table.HasCheckConstraint("ck_position_evaluations_current_quantity", "current_quantity IS NULL OR CAST(current_quantity AS NUMERIC) >= 0");
             table.HasCheckConstraint("ck_position_evaluations_partial_exit_status", "partial_exit_status IN ('NotApplicable', 'Candidate', 'NotFeasible')");
             table.HasCheckConstraint("ck_position_evaluations_partial_exit_quantity", "(partial_exit_status = 'Candidate' AND partial_exit_quantity > 0) OR (partial_exit_status IN ('NotApplicable', 'NotFeasible') AND partial_exit_quantity IS NULL)");
+            table.HasCheckConstraint("ck_position_evaluations_fail_closed_partial_exit", "evaluation_outcome = 'Evaluated' OR (partial_exit_status = 'NotApplicable' AND partial_exit_quantity IS NULL)");
         });
         builder.HasKey(row => row.Id);
         builder.HasOne<AnalysisRunRow>().WithMany().HasForeignKey(row => row.AnalysisRunId).OnDelete(DeleteBehavior.Restrict);

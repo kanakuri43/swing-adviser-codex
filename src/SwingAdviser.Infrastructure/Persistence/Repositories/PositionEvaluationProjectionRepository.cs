@@ -46,6 +46,7 @@ internal sealed record PositionEvaluationLotProjection(
     Guid? ContractRevisionId,
     Guid? RiskBasisSnapshotId,
     Guid? RiskPlanRevisionId,
+    IReadOnlyList<Guid> MarginCostItemIds,
     IReadOnlyList<Guid> MarginCostObservationIds);
 
 internal sealed record PositionEvaluationManifestDraft(
@@ -864,6 +865,12 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
                 .ThenBy(row => row.ValuationKind, StringComparer.Ordinal)
                 .Select(row => row.Id)
                 .ToArray();
+            var lotCostItemIds = costItems
+                .Where(row => row.MarginLotId == lot.Id)
+                .OrderBy(row => row.CostType, StringComparer.Ordinal)
+                .ThenBy(row => row.OccurrenceKey, StringComparer.Ordinal)
+                .Select(row => row.Id)
+                .ToArray();
             lotProjections.Add(new PositionEvaluationLotProjection(
                 lot.Id,
                 opening.Id,
@@ -891,6 +898,7 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
                 contract?.Id,
                 basis?.Id,
                 plan?.Id,
+                lotCostItemIds,
                 lotCostIds));
         }
 
@@ -913,6 +921,10 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
         var orderedBases = basisLeaves.OrderBy(row => row.MarginLotId).ToList();
         var basisLotById = basisLeaves.ToDictionary(row => row.Id, row => row.MarginLotId);
         var orderedPlans = planLeaves.OrderBy(row => basisLotById[row.RiskBasisSnapshotId]).ToList();
+        var orderedPlanHistory = planRows
+            .OrderBy(row => basisLotById[row.RiskBasisSnapshotId])
+            .ThenBy(row => row.RevisionNo)
+            .ToList();
         var orderedCosts = costLeaves
             .OrderBy(row => costItemById[row.MarginCostItemId].MarginLotId)
             .ThenBy(row => costItemById[row.MarginCostItemId].CostType, StringComparer.Ordinal)
@@ -944,6 +956,7 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
             orderedContracts,
             orderedBases,
             orderedPlans,
+            orderedPlanHistory,
             orderedCosts,
             costItemById);
         var manifestHash = Hash(canonicalJson);
@@ -1084,6 +1097,7 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
         IReadOnlyList<MarginLotContractRevisionRow> contracts,
         IReadOnlyList<RiskBasisSnapshotRow> bases,
         IReadOnlyList<RiskPlanRevisionRow> plans,
+        IReadOnlyList<RiskPlanRevisionRow> planHistory,
         IReadOnlyList<MarginCostObservationRow> costs,
         IReadOnlyDictionary<Guid, MarginCostItemRow> costItems)
     {
@@ -1179,6 +1193,30 @@ internal sealed class PositionEvaluationProjectionRepository(SwingAdviserDbConte
                 WriteGuid(writer, "revisionId", row.Id);
                 writer.WriteString("contentSha256", row.ContentSha256);
             });
+            WriteRevisionArray(writer, "riskPlanHistory", planHistory, row =>
+            {
+                WriteGuid(writer, "riskBasisSnapshotId", row.RiskBasisSnapshotId);
+                WriteGuid(writer, "revisionId", row.Id);
+                writer.WriteNumber("revisionNo", row.RevisionNo);
+                writer.WriteString("contentSha256", row.ContentSha256);
+            });
+            writer.WritePropertyName("marginCostItems");
+            writer.WriteStartArray();
+            foreach (var item in costItems.Values
+                         .OrderBy(row => row.MarginLotId)
+                         .ThenBy(row => row.CostType, StringComparer.Ordinal)
+                         .ThenBy(row => row.OccurrenceKey, StringComparer.Ordinal))
+            {
+                writer.WriteStartObject();
+                WriteGuid(writer, "marginLotId", item.MarginLotId);
+                WriteGuid(writer, "logicalId", item.Id);
+                writer.WriteString("costType", item.CostType);
+                writer.WriteString("occurrenceKey", item.OccurrenceKey);
+                writer.WriteString("periodStartDate", PersistenceValueFormats.FormatMarketDate(item.PeriodStartDate));
+                writer.WriteString("periodEndDate", PersistenceValueFormats.FormatMarketDate(item.PeriodEndDate));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             WriteRevisionArray(writer, "marginCosts", costs, row =>
             {
                 var item = costItems[row.MarginCostItemId];

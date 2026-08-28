@@ -246,6 +246,7 @@ public static class DevelopmentDataSeeder
         {
             Id = Guid.NewGuid(), AnalysisRunId = runId, PositionId = opening.PositionId,
             PositionEvaluationInputManifestId = evaluationManifestId, EvaluationBarDate = EvaluationDate,
+            EvaluationOutcome = PositionEvaluationOutcome.Evaluated.ToString(),
             ExitDecision = ExitDecision.TakeProfit.ToString(),
             ReasonSummary = "1.5R到達を想定したローカル結合テスト用の利確候補",
             ReasonsJson = "[\"development seed only\"]", LotEvaluationsJson = "[]", CurrentQuantity = 200m,

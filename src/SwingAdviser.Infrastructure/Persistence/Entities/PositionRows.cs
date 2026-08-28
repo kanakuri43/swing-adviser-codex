@@ -215,11 +215,12 @@ internal sealed class PositionEvaluationRow
     public Guid PositionId { get; set; }
     public Guid PositionEvaluationInputManifestId { get; set; }
     public DateOnly EvaluationBarDate { get; set; }
-    public string ExitDecision { get; set; } = string.Empty;
+    public string EvaluationOutcome { get; set; } = string.Empty;
+    public string? ExitDecision { get; set; }
     public string ReasonSummary { get; set; } = string.Empty;
     public string ReasonsJson { get; set; } = string.Empty;
     public string LotEvaluationsJson { get; set; } = string.Empty;
-    public decimal CurrentQuantity { get; set; }
+    public decimal? CurrentQuantity { get; set; }
     public decimal? PricePnl { get; set; }
     public decimal? ConfirmedCostPnl { get; set; }
     public decimal? EstimatedNetPnl { get; set; }

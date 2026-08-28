@@ -500,9 +500,10 @@ public sealed record PositionEvaluation
         PositionId positionId,
         Guid inputManifestId,
         DateOnly evaluationBarDate,
-        ExitDecision decision,
+        PositionEvaluationOutcome outcome,
+        ExitDecision? decision,
         string reasonSummary,
-        decimal currentQuantity,
+        decimal? currentQuantity,
         decimal? priceProfitAndLoss,
         decimal? confirmedCostProfitAndLoss,
         decimal? estimatedNetProfitAndLoss,
@@ -516,9 +517,32 @@ public sealed record PositionEvaluation
             throw new ArgumentException("Evaluation and manifest IDs cannot be empty.");
         }
 
+        if (analysisRunId.Value == Guid.Empty || positionId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Analysis run and position IDs cannot be empty.");
+        }
+
+        if (!Enum.IsDefined(outcome) ||
+            (decision.HasValue && !Enum.IsDefined(decision.Value)) ||
+            !Enum.IsDefined(partialExitStatus))
+        {
+            throw new ArgumentOutOfRangeException(nameof(outcome), "The evaluation contains an unsupported enum value.");
+        }
+
         if (currentQuantity < 0m || partialExitQuantity < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(currentQuantity));
+        }
+
+        if ((outcome == PositionEvaluationOutcome.Evaluated) != decision.HasValue)
+        {
+            throw new DomainException("Only an evaluated position can carry an exit decision.");
+        }
+
+        if (outcome != PositionEvaluationOutcome.Evaluated &&
+            (partialExitStatus != PartialExitStatus.NotApplicable || partialExitQuantity is not null))
+        {
+            throw new DomainException("A fail-closed evaluation cannot carry a partial-exit candidate.");
         }
 
         if (partialExitStatus == PartialExitStatus.Candidate && partialExitQuantity is null or <= 0)
@@ -536,6 +560,7 @@ public sealed record PositionEvaluation
         PositionId = positionId;
         InputManifestId = inputManifestId;
         EvaluationBarDate = evaluationBarDate;
+        Outcome = outcome;
         Decision = decision;
         ReasonSummary = DomainGuard.Required(reasonSummary, nameof(reasonSummary));
         CurrentQuantity = currentQuantity;
@@ -553,9 +578,10 @@ public sealed record PositionEvaluation
     public PositionId PositionId { get; }
     public Guid InputManifestId { get; }
     public DateOnly EvaluationBarDate { get; }
-    public ExitDecision Decision { get; }
+    public PositionEvaluationOutcome Outcome { get; }
+    public ExitDecision? Decision { get; }
     public string ReasonSummary { get; }
-    public decimal CurrentQuantity { get; }
+    public decimal? CurrentQuantity { get; }
     public decimal? PriceProfitAndLoss { get; }
     public decimal? ConfirmedCostProfitAndLoss { get; }
     public decimal? EstimatedNetProfitAndLoss { get; }

@@ -32,6 +32,7 @@ public enum CostValuationKind { Estimate, Confirmed }
 public enum CostDirection { Charge, Credit }
 public enum CostSourceKind { ApplicationEstimate, PublishedMarketData, BrokerStatement, UserEntry }
 public enum PartialExitStatus { NotApplicable, Candidate, NotFeasible }
+public enum PositionEvaluationOutcome { Evaluated, InsufficientHistory, HistoryIncomplete, InvalidData, PointInTimeUnverified, ReconciliationRequired, IncompletePositionData, IntradaySequenceUnknown, Failed }
 public enum RiskPlanReason { Initial, PartialExitBreakeven, CorporateActionConversion, UserCorrection }
 public enum PositionAdjustmentStatus { Applied, ReconciliationRequired, Resolved, Reversed }
 public enum AiRequestOrigin { User, Automatic }
