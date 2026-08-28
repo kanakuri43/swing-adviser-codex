@@ -61,7 +61,7 @@ Non-negotiable rules・優先順位は AGENT.md 側が正であり、本ファ�
 
 4.1.4の価格ライン判定はDomainの`LotRiskEvaluator`へ実装する。callerは評価セッション開始時刻をcutoffとして渡し、evaluatorは`effective_at_utc`と`recorded_at_utc`がともにcutoff以前のrevisionだけから、欠落・分岐のないrisk-plan chainの単一leafを選ぶ。結果は代表`ExitDecision`に加えてstop/target双方について、line種別、比較対象High/Low、比較演算子、観測価格、ライン価格、到達有無を型付き理由として返す。これにより`StopLoss`優先時も同一足のtarget到達証拠を失わない。テクニカル反転、部分利確数量、position集約は後続タスクでこのlot結果へ追加する。
 
-一部利確候補数量は lot ごとに `floor(lot現在数量 * partialTakeProfitFraction / 売買単位) * 売買単位` で求め、決済後に同じ lot へ最低 1 売買単位が残る場合だけ `Candidate` とする。同じ position の別 lot へ数量を暗黙配分しない。既に partial exit confirmed の lot には同じ risk-basis chain の一部利確候補を繰り返し生成しない。
+一部利確候補数量は lot ごとに `floor(lot現在数量 * partialTakeProfitFraction / 売買単位) * 売買単位` で求め、決済後に同じ lot へ最低 1 売買単位が残る場合だけ `Candidate` とする。Domain の `LotPartialExitQuantityCalculator` は企業アクション後の端株を保持できる `decimal` の現在数量と整数の売買単位を受け、候補数量、決済後数量、実効割合を元の lot ID に結び付けた純粋な提案として返す。分割不能時は数量を持たない `NotFeasible` とし、全決済候補へ丸めたり、約定・lot allocation・保有数量を生成または変更したりしない。同じ position の別 lot へ数量を暗黙配分しない。既に partial exit confirmed の lot には同じ risk-basis chain の一部利確候補を繰り返し生成しない。
 
 #### Multiple-lot aggregation
 
